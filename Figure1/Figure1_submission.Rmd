@@ -1,0 +1,952 @@
+---
+title: "Figure 1"
+author: "Clay Carey"
+date: "2024-05-08"
+output: html_document
+---
+
+Specify root directory of supporting data
+```{r setup}
+
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/Figure1")
+
+```
+
+
+Load required packages
+```{r message=TRUE, include=FALSE}
+
+library(Seurat)
+library(dplyr)
+library(scCustomize)
+library(tidyverse)
+library(stringr)
+library(dittoSeq)
+library(scDblFinder)
+library(SingleCellExperiment)
+library(ggridges)
+library(ggplot2)
+library(edgeR)
+library(presto)
+library(EnhancedVolcano)
+library(gtExtras)
+library(viridis)
+
+
+```
+
+
+
+Import the cellranger CRISPR analysis output "protospacer calls per cell", which shows the type of gRNA detected and number of UMIs associated with each cell. experimental configuration file shows each guide, target gene, and sequence
+```{r}
+pilot_CRISPR_data <- read.csv(file = "inputs/protospacer_calls_per_cell.csv")
+pilot_CRISPR_data
+
+
+exp_config <- read.csv(file = "inputs/feature_reference.csv")
+exp_config
+
+```
+
+Define a processing function that splits the cellranger output into discrete columns "feature_call" 1-20, with the names of each guide type detected in each slot. Then split the num_umis column the same way to have corresponding umis for each feature call. 
+```{r}
+process_data <- function(data){
+  
+  max_features <- 20 # Maximum number of features to split into columns
+  feature_cols <- paste0("feature_call_", 1:max_features) # New column names
+  
+  # Split the feature_call column into multiple columns
+  split_features <- strsplit(as.character(data$feature_call), "\\|")
+  
+    for (i in 1:max_features) {
+      data[, feature_cols[i]] <- sapply(split_features, function(x) {
+        if (length(x) >= i) {
+          return(x[i])
+        } else {
+          return(0)
+        }
+      })
+    }
+  
+  # Split the num_umis column into multiple columns
+  max_umis <- 20 # Maximum number of umis to split into columns
+  umis_cols <- paste0("num_umis_", 1:max_umis) # New column names
+  
+  # Split the num_umis column into multiple columns
+  split_umis <- strsplit(as.character(data$num_umis), "\\|")
+  
+  for (i in 1:max_umis) {
+    data[, umis_cols[i]] <- sapply(split_umis, function(x) {
+      if (length(x) >= i) {
+        return(x[i])
+      } else {
+        return(0)
+      }
+    })
+  }
+  return(data)
+}
+
+CRdata <- process_data(pilot_CRISPR_data)
+CRdata
+
+```
+
+
+Now that the protospacer call file is modified, we can classify the cells as having protospacers for a single gene or multiple genes. In the case of a single target, a gene names is assigned, if multiple gene names are detected, the cells are classified as "Multiple". Only cells with a protospacer detected are in the cellranger outputs, so we will later assign unclassified cells in the seurat object as "not detected" 
+```{r}
+
+classifier <- function(df, proto_ids) {
+    for (proto in proto_ids) {
+      df <- df %>% 
+        mutate(!!paste0(proto, "_count") := case_when(
+          feature_call_1 == proto ~ 1,
+          feature_call_2 == proto ~ 1,
+          feature_call_3 == proto ~ 1,
+          feature_call_4 == proto ~ 1,
+          feature_call_5 == proto ~ 1,
+          feature_call_6 == proto ~ 1,
+          feature_call_7 == proto ~ 1,
+          feature_call_8 == proto ~ 1,
+          feature_call_9 == proto ~ 1,
+          feature_call_10 == proto ~ 1,
+          feature_call_11 == proto ~ 1,
+          feature_call_12 == proto ~ 1,
+          feature_call_13 == proto ~ 1,
+          feature_call_14 == proto ~ 1,
+          feature_call_15 == proto ~ 1,
+          feature_call_16 == proto ~ 1,
+          feature_call_17 == proto ~ 1,
+          feature_call_18 == proto ~ 1,
+          feature_call_19 == proto ~ 1,
+          feature_call_20 == proto ~ 1,
+          TRUE ~ 0)
+        )
+    }
+  print(df)
+  #extract the protospacer detection info from the DF
+  temp_df <- select(df, cell_barcode, ends_with("_count"))
+  
+  #make pivot table with cell IDS, filter to include only those with protospacer detected
+  temp_df <- temp_df %>% 
+    pivot_longer(-cell_barcode) %>%
+    filter(value == 1)  
+  
+  #summarize the protospacer names detected for each cell barcode
+  temp_df <- temp_df %>%
+    group_by(cell_barcode) %>%
+    summarise(class = paste(unique(name), collapse = ","))
+  
+  #remove suffix to just give gene name
+  
+  temp_df$all_protos <- temp_df$class
+  temp_df$all_protos <- gsub("_count", "", temp_df$all_protos)
+  temp_df$class <- gsub("-\\d+_count", "", temp_df$class)
+  temp_df <- separate(temp_df, class, into = c("count1", "count2", "count3","count4","count5"), sep = ",", extra = "merge")
+  print(temp_df)
+  
+  #add classifier with logic to classify cells
+  temp_df <- mutate(temp_df, class = case_when(
+    is.na(count2) ~ count1,
+    count1 == count2 & is.na(count3) ~ count1,
+    count1 == count2 & count2 == count3 & is.na(count4) ~ count1,
+    count1 == count2 & count2 == count3 & count3 == count4 & is.na(count5) ~ count1,
+    TRUE ~ "Multiple"))
+    
+  temp_df <- select(temp_df, cell_barcode, all_protos, class)
+  
+  df <- left_join(df, temp_df, by = "cell_barcode")
+  
+  df <- select(df, cell_barcode, num_features, feature_call, num_umis,all_protos,class)
+  
+  return(df)
+
+}
+
+CRdata_classified <- classifier(CRdata, unique(exp_config$id))
+CRdata_classified
+```
+
+
+
+Import 10x data, which is split into 2 assays. Create CRISPR assay object from gRNA count matrix
+```{r}
+tenx_data <- Read10X(data.dir = "inputs/micdrop_overload_matrix")
+tenx_data.gex <- tenx_data$`Gene Expression`
+tenx_data.crispr <- tenx_data$`CRISPR Guide Capture`
+mdp <- CreateSeuratObject(counts = tenx_data.gex , min.cells = 3)
+mdp[['CRISPR']] <- CreateAssayObject(counts = tenx_data.crispr)
+```
+
+
+Create new metadata dataframe and merge with CRISPR classifications, effectively adding new metadata columns that give discrete classifications to each cell
+```{r}
+mdp_meta <- mdp@meta.data
+mdp_meta$cell_barcode <- rownames(mdp_meta)
+mdp_meta <- left_join(mdp_meta, CRdata_classified, by = "cell_barcode")
+rownames(mdp_meta) <- mdp_meta$cell_barcode
+mdp_meta
+
+mdp@meta.data <- mdp_meta
+mdp@meta.data <- mdp@meta.data %>% 
+  mutate(class = ifelse(is.na(class), "ND",class)) %>%
+  mutate(class = ifelse(class == "Non-Targeting", "tyr",class))
+mdp
+```
+
+Visualize quality filtering metrics
+```{r}
+mdp[["percent.mt"]] <- PercentageFeatureSet(mdp, pattern = "^mt-")
+DefaultAssay(mdp) <- "RNA"
+VlnPlot(mdp, features = c("percent.mt","nCount_RNA","nFeature_RNA"))
+
+```
+
+subset and filter cells based on quality threshholds
+```{r}
+mdp <- subset(mdp, subset = nFeature_RNA > 200 & nFeature_RNA < 9000 & percent.mt < 15)
+```
+
+FIGURE 1B
+
+Make histogram of number of gRNA UMIs per cell in classified cells
+```{r}
+
+mdp_meta %>% filter(class != "ND") %>%
+ggplot(aes(x = nCount_CRISPR)) +
+  geom_histogram(binwidth = 1, fill = "black") +
+  scale_x_continuous(limits = c(0, 75)) +
+  scale_y_continuous() +
+  theme_classic() +
+  theme(
+    text = element_text(family = "Arial", size = 12, color = "black"),
+    axis.text.x = element_text(size = 12, color = "black", family = "Arial", face = "plain"),
+    axis.title.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12, color = "black",family = "Arial", face = "plain"),
+    axis.title.y = element_text(size = 12)
+  ) +
+  xlab("gRNA UMIs") +
+  ylab("Cell Count")
+
+ggsave(filename = "outputs/Figure_1B.eps", 
+             device = cairo_ps,
+             width = 2, 
+             height = 2,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+FIGURE 1C 
+```{r}
+
+mdp_meta <- mdp@meta.data %>%
+ mutate( type = case_when(
+  class == "ND" ~ "0",
+  class == "Multiple" ~ "2+",
+  TRUE ~ "1"
+  ))
+
+mdp_meta %>% 
+  dplyr::count(type) %>%
+  ggplot() +
+  geom_bar(aes(x = type, y = n / 1000), stat = "identity", fill = "black") +
+  theme_classic() +
+  xlab("gRNA targets") +
+  ylab("Cells (thousands)") +
+  scale_y_continuous(labels = scales::comma) +
+  theme(
+    axis.text.x = element_text(size = 12, family = "arial", color = "black", face = "plain"),
+    axis.text.y = element_text(size = 12, family = "Arial", color = "black",face = "plain"),
+    axis.title.y = element_text(size = 12, family = "Arial", color = "black",face = "plain"),
+    axis.title.x = element_text(size = 12, family = "Arial", color = "black",face = "plain"),
+    plot.title = element_text(size = 12, family = "Arial", color = "black",face = "plain"),
+    legend.text = element_text(size = 12, family = "Arial", color = "black",face = "plain"),
+    legend.title = element_blank()
+  ) 
+
+ggsave(filename = "outputs/Figure_1C.eps", 
+             device = cairo_ps,
+             width = 1.5, 
+             height = 2,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+
+Prepare data for doublet classification. Convert to singlecellexperiment file and run scdblfinder. 
+
+```{r}
+
+
+correctorder <- dimnames(mdp@assays$RNA$counts)[[2]] ##establish cell order from RNA assay
+mdp <- mdp[, correctorder] ##reorder columns
+mdp@meta.data <- mdp@meta.data[match(correctorder, rownames(mdp@meta.data)), ] ##reorder metadata
+
+
+mdp <- NormalizeData(mdp)
+mdp <- ScaleData(mdp)
+mdp_sce <- as.SingleCellExperiment(mdp)
+mdp_sce <- scDblFinder(mdp_sce)
+mdp_sce <- as.Seurat(mdp_sce)
+
+
+dub_info <- data.frame(mdp_sce@meta.data) %>%
+  select(scDblFinder.class, scDblFinder.score, scDblFinder.weighted, scDblFinder.cxds_score, class) %>%
+  mutate(type = case_when(
+  class == "Multiple" ~ "2+",
+  TRUE ~ "0-1"
+))
+
+
+```
+
+Figure S2A 
+```{r}
+
+ggplot(dub_info, aes(x = scDblFinder.weighted, fill = type)) +
+  geom_density(alpha = 0.8, position = "identity", color = NA) +
+  scale_fill_manual(values = c("0-1" = "black", "2+" = "grey")) +
+  xlab("scDblFinder Doublet Score") +
+  ylab("Density") +
+  theme_classic() +
+  guides(fill = guide_legend(title = "gRNA targets")) +
+  theme(
+    axis.text.x = element_text(size = 12, family = "arial", color = "black"),
+    axis.text.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.x = element_text(size = 12, family = "Arial", color = "black"),
+    plot.title = element_text(size = 12, family = "Arial", color = "black"),
+    legend.text = element_text(size = 12, family = "Arial", color = "black")
+  ) 
+
+ggsave(filename = "outputs/Figure_S2A.png", 
+             device = "png",
+             width = 4, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+Figure S2B
+```{r}
+
+class_freq <- dub_info %>%
+  select(type, scDblFinder.class) %>%
+  group_by(type) %>%
+  dplyr::count(scDblFinder.class) %>%
+  left_join(
+    dub_info %>% 
+      select(type, scDblFinder.class) %>%
+      group_by(type) %>%
+      dplyr::count(scDblFinder.class) %>%
+      summarize(tot = sum(n)),
+    by = "type"
+  ) %>%
+  mutate(pct = n/tot)
+
+ggplot(class_freq, aes(x = type, fill = scDblFinder.class, y = pct)) +
+  scale_fill_manual(values = c("singlet" = "black", "doublet" = "grey")) +
+  geom_bar(position = "stack", stat = "identity") +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(size = 12, family = "arial", color = "black"),
+    axis.text.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.x = element_text(size = 12, family = "Arial", color = "black"),
+    plot.title = element_text(size = 12, family = "Arial", color = "black"),
+    legend.text = element_text(size = 12, family = "Arial", color = "black")
+  ) +
+  guides(fill = guide_legend(title = "scDblFinder Class")) +
+  ylab("Proportion of Cells") +
+  xlab("gRNA targets recovered") +
+  labs(fill = "")
+
+
+ggsave(filename = "outputs/Figure_S2B.png", 
+             device = "png",
+             width = 3.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+  
+```
+
+```{r}
+
+# read rhampseq report
+rhamp <- read.csv(file ="inputs/rhamp_results.csv") 
+
+# make new class column based on the "target" column in results, this will allow merging with the cell pct data
+rhamp <- mutate(rhamp, class = case_when(
+  str_detect(target, "^cdx4") ~ "cdx4",
+  str_detect(target, "^rx3") ~ "rx3",
+  str_detect(target, "^tbx16") ~ "tbx16",
+  str_detect(target, "^tbxta") ~ "tbxta",
+  str_detect(target, "^hand2") ~ "hand2",
+  str_detect(target, "^hoxb1b") ~ "hoxb1b",
+  str_detect(target, "^foxa2") ~ "foxa2",
+  str_detect(target, "^tyr") ~ "tyr",
+  TRUE ~ "Other"
+))
+
+#pull out the counts for each genotype from the single-cell dataset, only including singly-classified cells
+cellfreq <- data.frame(table(mdp$class)) %>%
+  filter(Var1 != "ND") %>% 
+  filter(Var1 != "Multiple") %>% 
+  mutate(pct = (Freq / sum(Freq)) * 100) %>% #calculate the percentage for each genotype among the classified cells and add as new col
+  select( Var1, pct) 
+  #keep only the names and cell pct
+  
+#rename columns
+names(cellfreq) <- c("class","cell_pct")
+#rename Non-targeting to tyr
+cellfreq$class <- gsub("Non-Targeting","tyr", cellfreq$class)
+
+#merge with the rhamp-seq results by the class column, removing un-needed columns
+rhamp <- rhamp %>% 
+  left_join( cellfreq, by = "class") %>% 
+  select(class,target, pct_indel,wt_indel,cell_pct) %>%
+  group_by(class) %>% filter(pct_indel == max(pct_indel)) %>% #filter to only include the highest edited target (pct_indel)in the rhampseq data
+  ungroup() %>% 
+  mutate(class = factor(class, levels = c("hoxb1b","rx3","cdx4","hand2","tbx16","tbxta","foxa2","tyr"))) #reorder data
+
+
+```
+
+
+Figure 1E
+```{r}
+
+rhamp_normalized <- rhamp %>% 
+  mutate(indel_normalized  = pct_indel - wt_indel) #normalize indel rate by WT indel rate
+
+ggplot(rhamp_normalized) +
+  geom_segment( aes(x = class, xend = class, y = indel_normalized, yend = cell_pct), color = "grey") +
+  geom_point(aes(x = class, y = indel_normalized, color = factor("% DNA with indel", levels = c("% DNA with indel", "% Cells with gRNA"))), size = 3) +
+  geom_point(aes(x = class, y = cell_pct, color = factor("% Cells with gRNA", levels = c("% DNA with indel", "% Cells with gRNA"))), size = 3) +
+  scale_color_manual(values = c("black", "#888888")) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 17), breaks = c(0, 5, 10, 15)) +  # Custom y-axis limits and ticks
+  theme_classic() + 
+  theme(legend.position = c(0.4, -0.25)) +
+  xlab("") +
+  ylab(element_blank()) + 
+  theme(
+    text = element_text(family = "Arial"),
+    axis.text.x = element_text(size = 12, family = "Arial"),  
+    axis.text.y = element_text(size = 12, face = "italic", color = "black"), 
+    axis.title = element_text(size = 12),  
+    plot.title = element_text(size = 12),  
+    legend.text = element_text(size = 12),  
+    legend.title = element_blank(),
+    axis.title.x = element_blank(),
+    plot.margin = margin(b = 70),
+    legend.background = element_rect(fill = alpha("white", 0))
+  ) +
+  guides(color = guide_legend(title = "", ncol = 1))
+
+ggsave(filename = "outputs/Figure_1E.png", 
+             device = "png",
+             width = 2.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+
+Run dim reduction and cell clustering
+```{r}
+##Remove cels with multiple detected gRNA types (doublets)
+mdp_filt <- subset(mdp, subset = class != "Multiple")
+
+##Run standard normalization and clustering workflow
+mdp_filt <- NormalizeData(mdp_filt)
+mdp_filt <- FindVariableFeatures(mdp_filt, selection.method = "vst", nfeatures = 2000)
+mdp_filt <- ScaleData(mdp_filt)
+mdp_filt <- RunPCA(mdp_filt, features = VariableFeatures(object = mdp_filt))
+mdp_filt <- FindNeighbors(mdp_filt, dims = 1:30)
+mdp_filt <- FindClusters(mdp_filt, resolution = 0.5)
+mdp_filt <- RunUMAP(mdp_filt, dims = 1:30, min.dist = 0.4)
+
+DimPlot(mdp_filt)
+```
+
+Now we label cell types using reference based label transfer
+```{r}
+
+## load the daniocell seurat object, which includes cells collected at timepoints 21-26hpf
+dcell_ref <- readRDS(file = "inputs/dcell_21_26.rds")
+
+## we RE-run PCA and UMAP to make sure PCA space is calculated based only on newly subsetted cells.
+
+dcell_ref <- RunPCA(dcell_ref, dims = 1:30)  
+
+##Return a model for UMAP-projection
+dcell_ref <- RunUMAP(dcell_ref, dims = 1:30, return.model = TRUE) 
+
+##separate celltype levels into three levels
+dcell_ref@meta.data <- separate(dcell_ref@meta.data, full_ident, into = c("tissue","cell_type","sub_type"), sep = "[|>]", remove = FALSE)
+
+##Run reference based label transfer
+xfer_anchors <- FindTransferAnchors(reference = dcell_ref, query = mdp_filt, dims = 1:30, reference.assay = "RNA", query.assay = "RNA", reference.reduction = "pca") 
+
+predictions <- TransferData(anchorset = xfer_anchors, refdata = dcell_ref$full_ident, dims = 1:30 )
+
+##add 
+mdp_filt <- AddMetaData(mdp_filt, metadata = predictions)
+
+##map query cells to reference umap
+mdp_filt <- MapQuery(anchorset = xfer_anchors, reference = dcell_ref, query = mdp_filt, refdata = "full_ident", reference.reduction = "pca", reduction.model = "umap")
+
+
+##labels from reference contain three levels of classificiation Tissue > cell_type > sub_type. Separate these into discrete columns
+mdp_filt@meta.data <- separate(mdp_filt@meta.data, predicted.id, into = c("tissue","cell_type","sub_type"), sep = "[|>]", remove = FALSE)
+
+
+```
+
+Figure S4A
+```{r}
+p1 <- DimPlot(dcell_ref, group.by = "tissue", label = FALSE, reduction = 'umap') 
+
+LabelClusters(p1, id = "tissue", repel = TRUE) + NoLegend() + NoAxes() + ggtitle("Daniocell reference tissue types") + theme(plot.title = element_text(size = 12))
+
+
+ggsave(filename = "outputs/Figure_S4A.png", 
+             device = "png",
+             width = 4, 
+             height = 4,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+Figure S4B
+```{r}
+p1 <- DimPlot(mdp_filt, group.by = "tissue", label = FALSE, reduction = 'ref.umap') + NoLegend() + NoAxes() + ggtitle("MIC-Drop-seq cells projected to reference") + theme(plot.title = element_text(size = 12))
+
+p1
+
+ggsave(filename = "outputs/Figure_S3B.png", 
+             device = "png",
+             width = 4, 
+             height = 4,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+
+
+Labels are transfered per-cell. We can take our clusters and assign a consenseus cell type to each based on the most freqent transfered labels.
+
+```{r}
+
+consensus_assignments <- mdp_filt@meta.data %>% 
+  group_by(seurat_clusters) %>% 
+  dplyr::count(predicted.id) %>% 
+  top_n(n =1 , wt = n) %>% ##take most common predicted.id for each cluster
+  select(seurat_clusters, predicted.id) %>%
+  separate( predicted.id, into = c("consensus_tissue","consensus_cell_type","consensus_sub_type"), sep = "[|>]", remove = FALSE) %>%
+  dplyr::rename("consensus_predicted.id" = "predicted.id")
+
+
+mdp_filt@meta.data <- mdp_filt@meta.data %>%
+  left_join(consensus_assignments, by = "seurat_clusters") 
+
+
+rownames(mdp_filt@meta.data) <- mdp_filt@meta.data$cell_barcode
+
+
+
+``` 
+
+Figure S4C
+```{r}
+p1 <- DimPlot(mdp_filt, group.by = "consensus_tissue", label = FALSE) 
+LabelClusters(p1, id = "consensus_tissue", repel = TRUE, size = 4) + NoLegend() + NoAxes() + ggtitle("MIC-Drop-seq transfered tissue labels") +
+  theme(plot.title = element_text(size = 12)) 
+
+ggsave(filename = "outputs/Figure_S3C.png", 
+             device = "png",
+             width = 4, 
+             height = 4,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+Figure 1D
+```{r}
+##palette made with DimPals
+palette <-  c( '#AADAEEFF', '#FCDACAFF', '#DCD4E6FF', '#92C8E0FF', '#FFBDF2FF', '#7BB6D3FF', '#64A4C5FF', '#C4DFB6FF', '#FCE4A6FF', '#EC85D8FF', '#ACCF9FFF', '#EBC576FF', '#F0ABAEFF', '#458DB3FF', '#D69E3BFF', '#AF7623FF', '#95C089FF', '#2675A1FF', '#1A6088FF', '#D35C61FF', '#7EB173FF', '#619F57FF', '#9A70ABFF', '#545454FF', '#8B1713FF', '#104B6FFF', '#428B39FF', '#D747BBFF', '#B90497FF', '#44236EFF', '#277822FF', '#1D6623FF', '#7C000CFF', '#770262FF', '#135524FF' )
+
+
+p1 <- DimPlot(mdp_filt, cols = palette, group.by = 'seurat_clusters') + NoLegend() + NoAxes() + ggtitle("")
+
+LabelClusters(p1, id = "seurat_clusters", bg.color = "white")
+
+
+ggsave(filename = "outputs/Figure_1D.png", 
+             device = "png",
+             width = 5, 
+             height = 5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+Find markers for all clusters
+```{r}
+Idents(mdp_filt) <- "seurat_clusters"
+markers <- FindAllMarkers(mdp_filt, only.pos = TRUE, min.pct = 0.25)
+
+top_markers <- markers %>% 
+  mutate(pct.diff = pct.1 - pct.2) %>% ##Calculate pct difference as second metric for finding top markers
+  group_by(cluster) %>%
+  arrange(p_val_adj, desc(pct.diff)) %>% 
+  slice_head(n = 5) %>% 
+  select(cluster, gene) %>%
+  mutate(gene_number = paste0("marker_", row_number())) %>%
+  pivot_wider(names_from = gene_number, values_from = gene) %>% 
+  rename("cluster" = "Cluster")
+
+top_markers
+```
+
+Table S2
+```{r}
+mdp_filt$cell_barcode <- rownames(mdp_filt@meta.data)
+
+meta <- mdp_filt@meta.data
+
+meta <- meta %>%
+  dplyr::count(seurat_clusters) %>% 
+  rename("n" = "Cell Count") %>%
+  right_join(meta, by = "seurat_clusters") %>%
+  column_to_rownames("cell_barcode")
+
+pct_classified <- meta %>% ##Calculate the percentage of classified cells for each cluster
+   group_by(seurat_clusters) %>%
+   mutate(classified = ifelse(class == "ND", "unclass", "class")) %>%
+   dplyr::count(classified) %>%
+   mutate(total = sum(n), pct.classified = (n/total)) %>%
+   filter(classified == "class") %>% 
+   select(seurat_clusters, pct.classified)
+
+cluster_scores <- meta %>%
+  select(seurat_clusters, prediction.score.max) %>% 
+  group_by(seurat_clusters) %>%
+  mutate(avg_score = mean(prediction.score.max)) %>%
+  select(seurat_clusters, avg_score) %>%
+  distinct()
+  
+clust_table <- meta %>% 
+  select(seurat_clusters,`Cell Count`, consensus_tissue, consensus_cell_type) %>%
+  arrange(seurat_clusters) %>%
+  distinct() %>% 
+#  left_join(cluster_scores, by = "seurat_clusters") %>%
+  left_join(pct_classified, by = "seurat_clusters") %>%
+  rename("seurat_clusters" = "Cluster") %>% 
+  left_join(top_markers, by = "Cluster") %>% 
+  mutate(Cluster = as.double(paste0(Cluster))) %>%
+  dplyr::rename(
+    "Count" = "Cell Count",
+    "Tissue" = "consensus_tissue",
+    "Cell type" = "consensus_cell_type" ,
+#    "Sub type" = "consensus_sub_type" ,
+#    "Prediction score" = "avg_score" ,
+    "Percent classified" = "pct.classified" ,
+  ) 
+
+clust_table
+
+tableS2 <- clust_table %>% 
+  gt() %>%
+   data_color(
+      columns = vars(Cluster),  
+      colors = scales::col_numeric(
+        palette = palette,
+        domain = NULL
+      )
+    ) %>%
+#  gt_plt_bar_pct(column = `Prediction score`, labels = TRUE) %>%
+  gt_plt_bar_pct(column = `Percent classified`, labels = TRUE) 
+
+tableS2
+
+
+gtsave(tableS2, filename  = "outputs/tableS2.html")
+```
+
+
+
+
+
+```{r}
+
+correctorder <- dimnames(mdp_filt@assays$RNA$data)[[2]] ##establish cell order from RNA assay
+
+mdp_filt <- mdp_filt[, correctorder] ##reorder columns
+
+mdp_filt@meta.data <- mdp_filt@meta.data[match(correctorder, rownames(mdp_filt@meta.data)), ] ##reorder metadata
+
+
+```
+
+Figure S5B
+```{r}
+
+mdp_filt@meta.data <- mutate(mdp_filt@meta.data, eye = case_when(
+  seurat_clusters == 2 ~ "Optic Primordia",
+  seurat_clusters == 22 ~ "Optic Primordia",
+  TRUE ~ "Other"
+))
+
+eyestats <- data.frame(table(mdp_filt$eye, mdp_filt$class))
+
+totals <- eyestats %>% group_by(Var2) %>% summarise(total = sum(Freq))
+
+eyestats <- left_join(eyestats, totals, by = "Var2")
+eyestats$pct <- (eyestats$Freq / eyestats$total) * 100
+eyestats <- filter(eyestats, Var1 == "Optic Primordia") %>% select(Var2, pct) %>% filter(Var2 != "ND") %>% filter(Var2 != "Multiple")
+eyestats$Var2 <- gsub("Non-Targeting", "tyr", eyestats$Var2)
+eyestats$Var2 <- factor(eyestats$Var2, levels = c("cdx4","foxa2","hand2","hoxb1b","rx3","tbx16","tbxta","tyr"))
+
+ggplot(data = eyestats, aes(x = Var2, y = pct)) + 
+  geom_bar(stat = "identity", fill= 'black') + 
+  theme_classic() + 
+  ylab("% cells in cluster") + 
+  xlab("Mutation") +
+  theme(
+    axis.text.x = element_text(size = 12, family = "arial", color = "black", face = "italic", angle = 45, hjust =1),
+    axis.text.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.x = element_text(size = 12, family = "Arial", color = "black"),
+    plot.title = element_text(size = 12, family = "Arial", color = "black"),
+    legend.text = element_text(size = 12, family = "Arial", color = "black")
+  ) 
+
+ggsave(filename = "outputs/Figure_1I.png", 
+             device = "png",
+             width = 3, 
+             height = 2,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+Figure 1G
+```{r}
+mdp_filt@meta.data <- mutate(mdp_filt@meta.data, psm = case_when(
+  seurat_clusters == 15 ~ "Presomitic Mesoderm",
+  TRUE ~ "Other"
+))
+
+
+psmstats <- data.frame(table(mdp_filt$psm, mdp_filt$class))
+
+totals <- psmstats %>% group_by(Var2) %>% summarise(total = sum(Freq))
+
+
+psmstats <- left_join(psmstats, totals, by = "Var2")
+psmstats$pct <- (psmstats$Freq / psmstats$total) * 100
+psmstats <- filter(psmstats, Var1 == "Presomitic Mesoderm") %>% select(Var2, pct) %>% filter(Var2 != "ND") %>% filter(Var2 != "Multiple")
+psmstats$Var2 <- gsub("Non-Targeting", "tyr", psmstats$Var2)
+psmstats$Var2 <- factor(psmstats$Var2, levels = c("cdx4","foxa2","hand2","hoxb1b","rx3","tbx16","tbxta","tyr"))
+
+ggplot(data = psmstats, aes(x = Var2, y = pct)) + 
+  geom_bar(stat = "identity", fill = "black") + 
+  theme_classic()  + ylab("% cells in cluster") +   
+  ylab("% cells in cluster") + 
+  xlab("Mutation") +
+  theme(
+    axis.text.x = element_text(size = 12, family = "arial", color = "black", face = "italic", angle = 45, hjust =1),
+    axis.text.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.y = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title.x = element_text(size = 12, family = "Arial", color = "black"),
+    plot.title = element_text(size = 12, family = "Arial", color = "black"),
+    legend.text = element_text(size = 12, family = "Arial", color = "black")
+  ) 
+
+ggsave(filename = "outputs/Figure_1G.png", 
+             device = "png",
+             width = 3, 
+             height = 2,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+Figure 1F
+```{r}
+
+Idents(mdp_filt) <- "seurat_clusters"
+
+PSM <- subset(mdp_filt, idents = "15")
+
+PSM@meta.data <- mutate(PSM@meta.data, psmplot = case_when(class == "tbx16"  ~ "tbx16", class == "tyr" ~ "tyr", class == "tbxta" ~ "tbxta", TRUE ~ "Other")) 
+
+dittoDimPlot(PSM, "psmplot",split.by = "psmplot", color.panel  = c("#000000","black","black","black"),size =0.5,split.nrow = 1) + NoAxes() + NoLegend() + coord_cartesian(xlim = c(-14,-9), ylim = c(-1,2.5)) + theme(strip.text = element_text(size = 12, face = "italic"), strip.background = element_rect(fill = "white")) + ggtitle("")
+
+ggsave(filename = "outputs/Figre_1F.png", 
+             device = "png",
+             width = 8,
+             height = 1.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+
+Figure S5A
+```{r}
+optic <- subset(mdp_filt, idents = c(2,22))
+
+optic@meta.data <- mutate(optic@meta.data, opticplot = case_when(class == "rx3"  ~ "rx3", class == "tyr" ~ "tyr",  TRUE ~ "Other"))
+
+dittoDimPlot(optic, "opticplot", split.by = "opticplot", color.panel  = c("#000000","black","black","black"),size =0.5,split.nrow = 1) + NoAxes() + NoLegend() + coord_cartesian(xlim = c(2,11), ylim = c(-7,-2)) + theme(strip.text = element_text(size = 12, face = "italic"), strip.background = element_rect(fill = "white")) + ggtitle("")
+
+ggsave(filename = "outputs/Figure_1H.png", 
+             device = "png",
+             width = 6,
+             height = 1.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+Figure 1H
+```{r}
+
+Idents(mdp_filt) <- "consensus_cell_type"
+
+sc <- subset(mdp_filt, idents = "spinal cord")
+
+sc@meta.data <- mutate(sc@meta.data, cdx = ifelse(class == "cdx4", "cdx4", "other")) 
+
+dittoDimPlot(sc, 
+             "cdx",
+             split.by = "cdx", 
+             color.panel  = c("#000000","black"),
+             size =0.5,
+             split.nrow = 1) + 
+  NoAxes() + 
+  NoLegend() + 
+  coord_cartesian(xlim = c(-5,0), ylim = c(-5,2)) + 
+  theme(strip.text = element_text(size = 12, face = c("italic", "plain")), strip.background = element_rect(fill = "white")) + 
+  ggtitle("")
+
+ggsave(filename = "outputs/Figre_1H.svg", 
+             device = "svg",
+             width = 3,
+             height = 1.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+Figure 1I
+```{r}
+mdp_filt@meta.data <- mdp_filt@meta.data %>% mutate(cdx = ifelse(class == "cdx4", "cdx4", "other"))
+
+Idents(mdp_filt) <- "consensus_tissue"
+VlnPlot(mdp_filt,
+        group.by = "cdx", 
+        features = c('elavl3','hoxb9a','hoxc6b','hoxa9a'), 
+        idents = "spinal cord", 
+        stack = TRUE, 
+        flip = TRUE, 
+        cols = rep("darkgrey",5)) + 
+  NoLegend() + 
+  scale_x_discrete(labels = c(expression(italic(cdx4), "other"))) +
+  xlab("Mutation")
+
+
+  
+ggsave(filename = "outputs/Figre_1I.png", 
+             device = "png",
+             width = 3,
+             height = 2.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+Figure S3A
+```{r}
+mdp_filt@meta.data <- mdp_filt@meta.data %>%
+  mutate(class = factor(class, levels = c("hoxb1b","rx3","cdx4","hand2","tbx16","tbxta","foxa2","tyr","ND")))
+
+mdp_filt@meta.data %>% 
+  dplyr::count(class) %>%
+  arrange(n) %>%
+  ggplot(aes(x = class, y = n)) + 
+  geom_bar(stat = "identity", fill = "black") + 
+  theme_classic() +
+  labs(y = "Assigned Cells", x = "Genotype") +
+  scale_y_continuous(breaks = seq(0, 9000, by = 1000)) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+    axis.title.x = element_text(), 
+    axis.title.y = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = c(rep("italic",8),'plain'))
+  ) 
+
+ggsave(filename = "outputs/Figure_S3A.png", 
+             device = "png",
+             width = 4,
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+Figure S3B
+```{r}
+dittoDimPlot(mdp_filt, "class", split.by = "class") + NoLegend() + NoAxes() +
+  theme(strip.text = element_text(size = 12, face = c(rep("italic",8),"plain"), family = "Arial")) +
+  ggtitle("")
+
+ggsave(filename = "outputs/Figure_S3B.png", 
+             device = "png",
+             width = 6,
+             height = 6,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
