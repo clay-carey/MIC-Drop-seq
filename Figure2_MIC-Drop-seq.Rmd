@@ -1,0 +1,1308 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup}
+
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
+
+```
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(scCustomize)
+library(edgeR)
+library(ComplexHeatmap)
+library(viridis)
+library(ggplot2)
+library(patchwork)
+library(ggtext)
+library(gtExtras)
+library(monocle3)
+library(PLNmodels)
+library(hooke)
+```
+
+
+Import integrated seurat object
+```{r}
+micdrop <- readRDS(file = "input_data/micdrop_int_xfer.RDS")
+micdrop$cell_barcode <- rownames(micdrop@meta.data)
+```
+
+
+Add cell type annotations and metadata. 
+```{r}
+metadata <- readRDS(file = "input_data/lineagemeta.rds")
+metadata <- metadata %>% select(cell_barcode, curated_cell_type2, Phase, S.Score, G2M.Score, top.prediction.score, predicted.celltype, cell_class)
+metadata
+
+micdrop@meta.data <- micdrop@meta.data %>% 
+  left_join(metadata, by = "cell_barcode") %>%
+  column_to_rownames(var = "cell_barcode")
+
+```
+
+remove "likely doublet" clusters not assigned cell type
+```{r}
+
+micdrop@meta.data <- micdrop@meta.data %>%
+   mutate(curated_cell_type2 = ifelse(is.na(curated_cell_type2), "remove",curated_cell_type2)) 
+   
+
+micdrop <- subset(micdrop, curated_cell_type2 != "remove")
+
+##now we add a numeric cluster label to each cluster such that the most abundant cell type is 0, then 1 etc. 
+cluster_numbers <- micdrop@meta.data %>% 
+  dplyr::count(curated_cell_type2) %>%
+  arrange(desc(n)) %>%
+  mutate(cluster_numbers = c(0:(length(.$curated_cell_type2) -1 ))) %>% 
+  select(-n)
+
+micdrop@meta.data <- micdrop@meta.data %>% 
+  select(-seurat_clusters) %>%
+  rownames_to_column(var = "cell_barcode") %>%
+  left_join(cluster_numbers, by = "curated_cell_type2") %>%
+  column_to_rownames(var = "cell_barcode") %>%
+  dplyr::rename("seurat_clusters" = "cluster_numbers")
+
+
+```
+
+```{r}
+DefaultAssay(micdrop) <- "integrated"
+micdrop <- FindVariableFeatures(micdrop)
+micdrop <- ScaleData(micdrop)
+micdrop <- RunPCA(micdrop)
+micdrop <- RunUMAP(micdrop, dims = 1:30)
+DimPlot(micdrop) + NoLegend()
+```
+
+Figure 2B - UMAP of 50 gene micdrop-seq experiment
+```{r}
+#Define UMAP color palette
+palette <-  c( '#E8EAF6FF', '#5249F5', '#CED2ECFF', '#C1C7E7FF', '#B4BBE2FF', '#FFF3E0FF', '#A6AEDCFF', '#98A2D7FF', '#FFEBCEFF', '#FFE4BDFF', '#FFDDABFF', '#FFD699FF', '#8B96D2FF', '#7D8ACCFF', '#FFCE86FF', '#727FC8FF', '#6775C4FF', '#FFC673FF', '#5D6CC0FF', '#FFBE60FF', '#FFB74DFF', '#FFB13EFF', '#FFAB2FFF', '#5262BCFF', '#FFA521FF', '#4859B8FF', '#3E50B4FF', '#E8F5E9FF', '#DAEEDBFF', '#CDE8CEFF', '#C0E2C1FF', '#FF9F13FF', '#FF9904FF', '#3C4DB1FF', '#B1DBB3FF', '#3A4AADFF', '#A3D5A5FF', '#3747A9FF', '#3444A5FF', '#3140A0FF', '#94CF97FF', '#FE9500FF', '#FC9000FF', '#2E3C9CFF', '#FB8C00FF', '#2B3998FF', '#85C988FF', '#283593FF', '#F88600FF', '#F68000FF', '#79C37CFF', '#F47900FF', '#6EBE72FF', '#F27400FF', '#EF6D00FF', '#242F8DFF', '#EC6500FF', '#1F2985FF', '#63B967FF', '#59B45DFF', '#4EB052FF', '#49AA4DFF', '#45A449FF', '#419D45FF', '#1A237EFF', '#3C9641FF', '#388E3CFF', '#348738FF', '#E95B00FF', '#308034FF', '#E65100FF', '#2A772EFF', '#226A27FF', '#006400')
+
+#make umap
+plt <- DimPlot(micdrop, group.by = 'seurat_clusters', cols = palette, raster = FALSE) + NoLegend() + NoAxes() + ggtitle("")
+LabelClusters(plt, id = "seurat_clusters", bg.color = "#f0f0f0", size = 5)
+
+
+
+ggsave(file = "outputs_fig2/Figure2B.png", 
+       height = 7,
+       width = 7)
+
+
+```
+
+```{r}
+Idents(micdrop) <- "curated_cell_type2"
+clustermarkers <- FindAllMarkers(micdrop, only.pos = TRUE, min.pct = 0.25)
+
+clustermarkers
+
+top_markers <- clustermarkers %>% 
+  mutate(pct_diff = pct.1 - pct.2) %>%
+  arrange(p_val_adj, desc(pct_diff)) %>% 
+  group_by(cluster) %>%
+  slice_head(n = 5) %>% 
+  select(cluster, gene) %>%
+  mutate(gene_number = paste0("marker_", row_number())) %>%
+  pivot_wider(names_from = gene_number, values_from = gene) %>% 
+  dplyr::rename("Cell Type" = "cluster")
+
+top_markers
+
+```
+
+```{r}
+micdrop@meta.data$cell_barcode <- rownames(micdrop@meta.data)
+
+meta <- micdrop@meta.data %>% 
+  left_join(dplyr::count(micdrop@meta.data, curated_cell_type2), by = "curated_cell_type2") %>%
+  dplyr::rename("Cell Count" = "n") %>% 
+  column_to_rownames(var = "cell_barcode")
+
+
+clust_table <- meta %>% 
+  select(seurat_clusters,curated_cell_type2, cell_class, `Cell Count`) %>% 
+  distinct() %>% 
+  arrange(seurat_clusters) %>% 
+  mutate(color = palette) 
+
+pct_classified <- meta %>% ##Calculate the percentage of classified cells for each cluster
+   group_by(seurat_clusters) %>%
+   mutate(classified = ifelse(class == "ND", "unclass", "class")) %>%
+   dplyr::count(classified) %>%
+   mutate(total = sum(n), pct.classified = (n/total)) %>%
+   mutate(pct.classified = percent(pct.classified)) %>%
+   filter(classified == "class") %>% 
+   select(seurat_clusters, pct.classified)
+
+
+
+tableS4 <- clust_table %>% 
+  select(seurat_clusters, curated_cell_type2, `Cell Count`) %>%
+  left_join(pct_classified, by  = "seurat_clusters") %>%
+  dplyr::rename("#" = "seurat_clusters", "Cell Type" = "curated_cell_type2") %>%
+  left_join(top_markers, by = "Cell Type") %>%
+  gt() %>%
+   data_color(
+      columns = vars(`#`),  # Column to apply color to
+      colors = scales::col_numeric(
+        palette = clust_table$color,
+        domain = NULL
+      )
+    )
+
+tableS4
+
+gtsave(tableS4, filename = "outputs_fig2/tableS4.html")
+```
+
+
+```{r}
+targets <- unique(micdrop@meta.data$class)
+targets <- targets[targets != "ND"]
+targets
+
+
+
+DefaultAssay(micdrop) <- "RNA"
+Idents(micdrop) <- "curated_cell_type2"
+DotPlot_scCustom(micdrop, features =  targets, scale = FALSE, flip_axes = FALSE) +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke = 0.5) +
+  scale_colour_viridis(option="magma") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white"))) + 
+  theme(axis.text.x =element_text(angle =45,hjust = 1)) + 
+  theme(legend.title = element_text( size = 8)) + 
+  ylab(element_blank()) + 
+  xlab(element_blank())
+
+ggsave(device = "eps", width = 15, height = 12, units = "in", filename = "outputs_fig2/FigureS6B.eps")
+```
+
+```{r}
+edgeR_pbulk <- function(so, resolution = "curated_cell_type2"){
+  
+  # Subset to remove "ND" cells (those that are not of interest)
+  so <- subset(so, subset = class != "ND") 
+  
+  # Extract unique cell types from Seurat metadata based on the chosen resolution
+  celltypes <- so@meta.data %>% 
+    select(resolution) %>%  
+    unique() %>%  
+    pull() 
+  
+  # Print out the cell types for monitoring
+  print(paste("Cell Types:", celltypes))
+  
+  results <- data.frame()  ## Initialize an empty dataframe to store results
+  
+  # Iterate over each mutation (perturbation) in the dataset
+  for(mutation in unique(so$class)){  
+    
+    # Add a new column 'test_gene' to classify cells based whether they have the genotype being tested
+    so@meta.data <- mutate(so@meta.data, test_gene = case_when(
+      class == mutation ~ mutation,  # Assign mutation as test_gene for mutated cells
+      TRUE ~ "Other"  # All other cells are labeled as "Other"
+    ))
+    
+    # Use Seurat's AggregateExpression function to create pseudobulk counts 
+    # by aggregating expression data for each cell type, mutation, and group
+    exp <- AggregateExpression(so, assays = "RNA", group.by = c(resolution, "test_gene", "group"))
+    
+    # Print out the mutation being tested for monitoring progress
+    print(paste("Testing perturbation:", mutation))
+    
+    # Iterate over each cell type to perform differential expression analysis
+    for(celltype in unique(celltypes)){
+      
+      # Subset the expression matrix to include only the current cell type
+      subexp <- exp$RNA[, colnames(exp$RNA)[grepl(paste0("^", celltype, "_"), colnames(exp$RNA))]]
+      
+      # Create a grouping variable based on whether the column name contains the mutation
+      grps <- ifelse(grepl(paste0("^", mutation), dimnames(subexp)[2][[1]]), 1, 2)
+      
+      # Ensure there are enough samples (at least 5) for differential analysis
+      if(length(grps) >= 5){
+        
+        # Create a DGEList object (edgeR object) for differential expression analysis
+        y <- DGEList(subexp, group = grps)
+        
+        # Filter lowly expressed genes based on edgeR's filterByExpr function
+        keep <- filterByExpr(y)
+        
+        # Keep only the genes that passed the filter
+        y <- y[keep,,keep.lib.sizes=FALSE]
+        
+        # Normalize the counts in the DGEList object
+        y <- calcNormFactors(y)
+        
+        # Create a design matrix to specify the comparison (mutation vs. other)
+        design <- model.matrix(~grps)
+        
+        # Estimate dispersion of gene expression
+        y <- estimateDisp(y, design)
+        
+        # Fit a GLM model to the data using quasi-likelihood-F-test (QLF) approach
+        fit <- glmQLFit(y, design, prior.count = 6)
+        
+        # Perform a quasi-likelihood F-test to detect differentially expressed genes
+        qlf <- glmQLFTest(fit, coef=2)
+        
+        # Extract the results from the F-test and store them in a data frame
+        res <- data.frame(topTags(qlf, n = "Inf"))
+        
+        # Add the cell type and mutation to the results for tracking
+        res <- mutate(res, cell_type = celltype, perturbation = mutation)
+        
+        # Add gene names to the results
+        res$gene <- rownames(res)
+        
+        # Filter significant results (FDR < 0.05) for reporting
+        signif <- res %>% filter(FDR < 0.05)
+        
+        # Print out the number of significant DEGs for this combination of cell type and mutation
+        print(paste(celltype, mutation, "nDEGs:", nrow(signif)))
+        
+        # Append the results for this mutation and cell type to the final results dataframe
+        results <- rbind(results, res)
+      }
+      
+      # If there are not enough samples, print a message and skip to the next cell type
+      else{
+        print(paste(mutation, celltype, "not tested"))
+      }
+    }
+  }
+  
+  # Return the final results dataframe with all differentially expressed genes
+  return(results)
+}
+```
+
+define the function that runs edgeR and does differential gene expression testing in each cluster in each cell type
+```{r}
+
+edgeR_pbulk <- function(so, resolution = "curated_cell_type2"){
+  
+  so <- subset(so, subset = class != "ND") #Frist subset to remove ND cells 
+  
+  celltypes <- so@meta.data %>% ##Extract names of all celltyeps from object metadata
+    select(resolution) %>% 
+    unique() %>% 
+    pull()
+  
+  print(paste("Cell Types:",celltypes))
+  
+  results <- data.frame() ##initialize results dataframe
+  
+  for(mutation in unique(so$class)){  # the for loop iterates over each perturbation and calculates DEGs in each cluster for each target
+    
+    so@meta.data <- mutate(so@meta.data, test_gene = case_when( # To calculate DEGs, we compare libraries made from the perturbed cells vs all other cells. This part classifies cells as either having the mutation of interest or "other"
+      class == mutation ~ mutation,
+      TRUE ~ "Other"
+    ))
+    
+    exp <- AggregateExpression(so, assays = "RNA", group.by = c(resolution,"test_gene","group")) ## use seurat AggregateExpression to make pseudobulk count matrixes 
+    
+    print(paste("Testing pertuirbation:",mutation))
+    
+    for(celltype in unique(celltypes)){
+      
+      subexp <- exp$RNA[,colnames(exp$RNA)[grepl(paste0("^",celltype,"_"), colnames(exp$RNA))]]
+      
+      grps <- ifelse(grepl("_Other_", dimnames(subexp)[2][[1]]), 1, 2)
+      
+      if(length(grps) >= 5){
+        
+        y <- DGEList(subexp, group = grps)
+        
+        keep <- filterByExpr(y)
+        
+        y <- y[keep,,keep.lib.sizes=FALSE]
+        
+        y <- calcNormFactors(y)
+        
+        design <- model.matrix(~grps)
+        
+        y <- estimateDisp(y,design)
+        
+        fit <- glmQLFit(y,design, prior.count = 6)
+        
+        qlf <- glmQLFTest(fit,coef=2)
+        
+        res <- data.frame(topTags(qlf, n = "Inf"))
+        
+        res <- mutate(res, cell_type = celltype, perturbation = mutation)
+        
+        res$gene <- rownames(res)
+        
+        signif <- res %>% filter(FDR < 0.05)
+        
+        print(paste(celltype,mutation," nDEGs:", nrow(signif)))
+        
+        results <- rbind(results, res)
+      }
+      
+      else{print(paste(mutation,celltype,"not tested"))}
+    }
+  }
+  
+  return(results)
+}  
+
+
+
+```
+
+
+```{r}
+### DEseq2 function ###
+
+DEseq_pbulk <- function(so, resolution = "curated_cell_type2"){
+  
+  so <- subset(so, subset = class != "ND") #Frist subset to remove ND cells 
+  
+  celltypes <- so@meta.data %>% ##Extract names of all celltyeps from object metadata
+    select(resolution) %>% 
+    unique() %>% 
+    pull()
+  
+  print(paste("Cell Types:",celltypes))
+  
+  results <- data.frame() ##initialize results dataframe
+  
+  for(mutation in unique(so$class)){  # the for loop iterates over each perturbation and calculates DEGs in each cluster for each target
+    
+    so@meta.data <- mutate(so@meta.data, test_gene = case_when( # To calculate DEGs, we compare libraries made from the perturbed cells vs all other cells. This part classifies cells as either having the mutation of interest or "other"
+      class == mutation ~ mutation,
+      TRUE ~ "Other"
+    ))
+    
+    exp <- AggregateExpression(so, assays = "RNA", group.by = c(resolution,"test_gene","group")) ## use seurat AggregateExpression to make pseudobulk count matrixes 
+    
+    print(paste("Testing pertuirbation:",mutation))
+    
+    for(celltype in unique(celltypes)){
+      
+      subexp <- exp$RNA[,colnames(exp$RNA)[grepl(paste0("^",celltype,"_"), colnames(exp$RNA))]]
+      
+      cluster_metadata <- so@meta.data %>% 
+        filter(curated_cell_type2 == celltype) %>%
+        select(sample, group, curated_cell_type2, test_gene) %>% 
+        group_by(group, curated_cell_type2) %>%
+        dplyr::count(test_gene) %>%
+        mutate(sample = paste0(curated_cell_type2,"_", test_gene, "_", group)) %>%
+        arrange(factor(sample, levels = colnames(subexp))) %>% #ensure 
+        column_to_rownames(var = "sample") 
+      
+      dds <- DESeqDataSetFromMatrix(subexp, 
+                              colData = cluster_metadata, 
+                              design = ~ test_gene)
+      
+      # Run DESeq2 differential expression analysis
+      dds <- DESeq(dds, test = "LRT", fitType = "glmGamPoi", reduced = ~1)
+      
+      # Generate results object
+      res <- results(dds)
+
+      res <- as.data.frame(res) %>% 
+        arrange(padj) %>% 
+        rownames_to_column("gene") %>%
+        mutate(perturbation = mutation)
+      
+      results <- rbind(results, res)
+      
+    }
+  }
+  return(results)
+}
+      
+      
+      
+
+```
+
+```{r}
+
+  meox <- subset(micdrop, subset = class != "ND") #Frist subset to remove ND cells 
+
+    
+    meox@meta.data <- mutate(meox@meta.data, test_gene = case_when(
+      class == "meox1" ~ "meox1",
+      TRUE ~ "Other"
+    ))
+    
+    
+
+    
+    exp <- AggregateExpression(meox, assays = "RNA", group.by = c("curated_cell_type2","test_gene","group")) ## use seurat AggregateExpression to make pseudobulk count matrixes 
+    
+    exp <- exp$RNA
+    
+      
+      subexp <- exp[,colnames(exp)[grepl(paste0("^","Myotome","_"), colnames(exp))]]
+      subexp
+      
+    cluster_metadata <- meox@meta.data %>% 
+      filter(curated_cell_type2 == "Myotome") %>%
+      select(sample, group, curated_cell_type2, test_gene) %>% 
+      group_by(group, curated_cell_type2) %>%
+      dplyr::count(test_gene) %>%
+      mutate(sample = paste0(curated_cell_type2,"_", test_gene, "_", group)) %>%
+      arrange(factor(sample, levels = colnames(subexp))) %>%
+      column_to_rownames(var = "sample") 
+    
+    cluster_metadata
+      
+      dds <- DESeqDataSetFromMatrix(subexp, 
+                              colData = cluster_metadata, 
+                              design = ~ test_gene)
+      dds
+      
+      # Transform counts for data visualization
+rld <- rlog(dds, blind=TRUE)
+
+# Run DESeq2 differential expression analysis
+dds <- DESeq(dds)
+
+
+```
+
+
+```{r}
+
+# Run DESeq2 differential expression analysis
+dds <- DESeq(dds, test = "LRT", fitType = "glmGamPoi", reduced = ~1)
+
+# Plot dispersion estimates
+plotDispEsts(dds)
+```
+
+```{r}
+
+# Check the coefficients for the comparison
+resultsNames(dds)
+
+dds
+
+# Generate results object
+res <- results(dds)
+
+as.data.frame(res) %>% arrange(padj) %>% filter(padj < 0.05) %>% rownames_to_column("gene") 
+
+# Shrink the log2 fold changes with apeglm
+res <- lfcShrink(dds, 
+                 coef = "test_geneOther",
+                 res = res,
+                 type = "apeglm")
+
+
+```
+
+```{r}
+
+# Turn the DESeq2 results object into a tibble for use with tidyverse functions
+all_res <- res %>%
+  data.frame() %>%
+  rownames_to_column(var = "gene") %>%
+  as_tibble() %>%
+  arrange(padj)
+
+# Check results output
+all_res 
+
+```
+test wilcox ranked sum results
+```{r}
+
+meox_myo <- subset(meox, subset = curated_cell_type2 == "Myotome")
+
+Idents(meox_myo) <- "test_gene"
+
+DimPlot(meox_myo, group.by = "test_gene")
+
+default_seurat <- FindMarkers(meox_myo, ident.1 = "Other", ident.2 = "meox1", test.use = "DESeq2")
+
+default_seurat
+
+?FindMarkers
+```
+
+Define a function that adds the number of cells used in each test to the results dataframe
+```{r}
+deg_helper_fn <- function(results,so,resolution){
+  
+  resolution_sym <- sym(resolution)
+  
+    ncells <- so@meta.data %>% 
+      filter(class != "ND") %>%
+      count(class,!!resolution_sym) %>%
+      rename("perturbation" = "class","cell_type" = resolution, "ncell_perturbed" = "n")
+
+  print(ncells)
+  
+  res_mod <- left_join(results, ncells, by = c('perturbation','cell_type'))
+  
+  return(res_mod)
+}
+```
+
+Run the pseudobulk/DEG testing functions on seurat object (this takes a long time)
+```{r}
+DEG_results <- edgeR_pbulk(micdrop)
+DEG_results <- deg_helper_fn(DEG_results, resolution = 'curated_cell_type2', so = micdrop)
+```
+
+To prepare data for heatmap, we establish an order for cell groupings, first by the three tissue types, then within each, the order of cell types is determined by the number of cells in the cluster in descending order
+```{r}
+##DEG_results <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/DEG_results_5_9_24.rds")
+
+
+meta <- micdrop@meta.data
+
+
+DEG_results <- meta %>%  ##add column to DEG results with number of cells in each cluster
+  dplyr::count(curated_cell_type2) %>%
+  dplyr::rename("cell_type" = "curated_cell_type2", "cluster_ncell" = "n") %>%
+  right_join(DEG_results, by = "cell_type")
+
+DEG_results <- meta %>% ##add column to DEG results with the tissue type (cell_class) for each cluster
+  select(curated_cell_type2, cell_class) %>% 
+  distinct() %>% 
+  dplyr::rename("cell_type" = "curated_cell_type2") %>%
+  right_join(DEG_results, by = "cell_type")
+
+
+DEG_results
+```
+
+```{r}
+class_order <- c("Neural","Mesoderm / Endoderm","Non-neural Ectoderm")
+meta$cell_class <- factor(meta$cell_class, levels = class_order)
+
+##this code adds the cluster number to the cell type name
+
+#clusternames <- meta %>% 
+#  select(curated_cell_type2, seurat_clusters, cell_class) %>% 
+#  dplyr::rename("cell_type" = "curated_cell_type2") %>%
+#  distinct()
+
+#DEG_results <- DEG_results %>% 
+#  left_join(clusternames, by = "cell_type") %>%
+#  mutate(cell_type = paste0(seurat_clusters, " - ", cell_type))
+#DEG_results
+
+##Appply filtering criteria and pull vector of ordered cell types
+
+ct_order <- DEG_results %>% 
+  filter(FDR < 0.05, ncell_perturbed > 10, cluster_ncell > 800) %>%
+  mutate(
+    cell_type = factor(cell_type),
+    cell_class = factor(cell_class, 
+    levels = class_order)) %>%
+  distinct(cluster_ncell,cell_type, cell_class) %>%
+  group_by(cell_class) %>%
+  arrange(desc(cluster_ncell)) %>% 
+  arrange(cell_class) %>%
+  pull(cell_type)
+
+##saveRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/DEG_results.rds")
+```
+
+```{r}
+
+## make dataframe of the significant nDEG for each cell type (over 800 cells total)
+
+totaldeg_comp <- DEG_results %>% 
+  filter(FDR < 0.05, ncell_perturbed > 10, abs(logFC) > 0.5, cluster_ncell > 800) %>%
+  mutate(cell_type = factor(cell_type, levels = ct_order)) %>%
+  dplyr::count(perturbation, cell_type) %>%
+  pivot_wider(names_from = cell_type, values_from = n) %>%
+  column_to_rownames(var = "perturbation") %>%
+  select(ct_order) %>%
+  mutate_all(~ifelse(is.na(.),0,.))
+
+
+ha = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = c("#B2B8E0","#FFCD82","#85C989")), 
+  labels = c("Neural","Mesoderm / Endoderm","Non-neural Ectoderm")))
+                       
+split <- factor(
+  c(rep("Neural", 23), rep("Mesoderm / Endoderm", 22), rep("Non-neural Ectoderm", 10)),
+  levels = c("Neural", "Mesoderm / Endoderm", "Non-neural Ectoderm")
+)
+
+pal = c(rep("#FFFFFF",9), viridis(option = "F", n = max(totaldeg_comp), direction = -1)) ##make color scale start at 10
+
+
+
+png(filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 2/Figure_2C.png", height = 10, width = 13, units = "in", res = 300 )
+
+hm <- Heatmap( totaldeg_comp, 
+                 row_names_gp = gpar(fontface = "italic"),
+                 na_col = "darkgrey",  col = pal, column_names_rot = 45, border = "lightgrey", 
+                 column_split = split, top_annotation = ha, column_gap = unit(4,"mm"),
+                 heatmap_legend_param = list(title = "nDEG"), rect_gp = gpar(col = "lightgrey"), cluster_column_slices = FALSE, 
+                 row_dend_side = "right", row_names_side = "left", row_title =  "                  ", row_title_rot = 45)
+hm
+
+dev.off()
+
+
+```
+
+
+```{r}
+
+##make a dataframe that orders cell types by number of cells in cluster, then we can pull the number of cell types for each one for the purposes of formatting the heatmap. 
+
+ct_stats <- DEG_results %>% 
+  filter(FDR < 0.05, cluster_ncell > 800) %>%
+  mutate(
+    cell_type = factor(cell_type),
+    cell_class = factor(cell_class, 
+    levels = class_order)) %>%
+  distinct(cluster_ncell, cell_type, cell_class) %>%
+  group_by(cell_class) %>%
+  arrange(desc(cluster_ncell)) %>% 
+  arrange(cell_class) 
+
+ct_order <- ct_stats %>% 
+  pull(cell_type)
+  
+neu_len <- ct_stats %>% 
+  filter(cell_class == "Neural") %>% 
+  nrow()
+
+meso_len <- ct_stats %>%
+  filter(cell_class == "Mesoderm / Endoderm") %>% 
+  nrow()
+
+ecto_len <- ct_stats %>%
+  filter(cell_class == "Non-neural Ectoderm") %>% 
+  nrow()
+  
+##make dataframe from DEG results that counts number of significant DEGs from each mutation in each cell type
+totaldeg_comp <- DEG_results %>% 
+  filter(FDR < 0.05, abs(logFC) > 0.5, cluster_ncell > 800) %>%
+  mutate(cell_type = factor(cell_type, levels = ct_order)) %>%
+  dplyr::count(perturbation, cell_type) %>%
+  pivot_wider(names_from = cell_type, values_from = n) %>%
+  column_to_rownames(var = "perturbation") %>%
+  select(ct_order) %>%
+  mutate_all(~ifelse(is.na(.),0,.)) %>%
+  t() 
+
+totaldeg_comp <- totaldeg_comp[as.vector(ct_order),] ##reorder rows
+
+## make graphic annotation boxes
+ha <- rowAnnotation(foo = anno_block(gp = gpar(fill = c("#B2B8E0","#FFCD82","#85C989")), 
+                    labels = c("Neural","Mesoderm + Endoderm","NNE + NC")), width = unit(.5,"cm"))
+ 
+##define tissue split in heatmap rows               
+split <- factor(
+  c(rep("Neural", neu_len), 
+    rep("Mesoderm / Endoderm", meso_len), 
+    rep("Non-neural Ectoderm", ecto_len)),
+    levels = c("Neural", "Mesoderm / Endoderm", "Non-neural Ectoderm")
+)
+
+
+pal = c(rep("#FFFFFF",9), viridis(option = "F", n = max(totaldeg_comp), direction = -1)) ##make color scale start at 10
+
+pert_deg_sum <- colSums(totaldeg_comp)
+ct_deg_sum <- rowSums(totaldeg_comp)
+
+row_bars = rowAnnotation( total = anno_barplot(ct_deg_sum, border = FALSE ))
+col_bars = HeatmapAnnotation(total = anno_barplot(pert_deg_sum, border = FALSE))
+
+
+png(filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 2/Figure_2C.png", height = 10, width = 13, units = "in", res = 300 )
+
+hm <- Heatmap( totaldeg_comp, 
+                 column_names_gp = gpar(fontface = "italic"),
+                 na_col = "darkgrey",  
+                 col = pal, 
+                 column_names_rot = 45, 
+                 border = "lightgrey", 
+                 row_split = split, 
+                 left_annotation = ha, 
+                 right_annotation = row_bars,
+                 row_gap = unit(4,"mm"), 
+                 heatmap_legend_param = list(title = "DEG Count", 
+                  at = c(0,10, 100, 200, 300, 400, 500, 600, 700),
+                  legend_height = unit(4,"cm"), 
+                  legend_width = unit(4,"cm"), 
+                  gap = unit(10,"cm")), 
+                 rect_gp = gpar(col = "lightgrey"),       
+                 cluster_row_slices = FALSE,
+                 cluster_rows = FALSE, 
+                 show_column_dend = FALSE, 
+                 top_annotation = col_bars,
+                 row_dend_side = "right", 
+                 row_names_side = "left", 
+                 row_title =  "                  ", 
+                 row_title_rot = 45)
+hm
+
+dev.off()
+```
+
+
+
+```{r}
+cells_geno <- micdrop@meta.data %>% 
+  filter(class != "ND") %>%
+  dplyr::count(class) %>%
+  arrange(desc(n)) %>%
+  mutate(class = factor(class, levels = class))
+
+ggplot(cells_geno, aes(x = class, y = n)) +
+  geom_point(size = 2) + 
+  geom_segment(aes(x=class, xend=class, y=0, yend=n)) +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(breaks = seq(0, max(cells_geno$n), 500), expand = c(0,0.1)) + # Set y-axis ticks to 1, 2, 3, 4, ...
+  ylim(c(0,5000)) +
+  theme(panel.grid.major = element_blank()) +
+  labs(x = "Mutation", y = "# Cells", title = "Number of recovered cells / mutant", caption = paste0("Mean: ", round(mean(cells_geno$n))))
+
+ggsave(device = "eps", width = 8, height = 3, units = "in", filename = "FigureS6C.eps")
+
+```
+
+
+Calculate the top 50 most frequently occurring DEGs. 
+```{r}
+
+top_any <- DEG_results %>%
+  filter(FDR < 0.05, cluster_ncell > 800) %>%
+  dplyr::count(gene) %>%
+  arrange(desc(n)) %>% 
+  slice_head(n = 50)
+
+write.csv(top_any, file = "top_any.csv")
+
+top_any <- top_any %>%
+  arrange(desc(n)) %>%
+  mutate(gene = factor(gene, levels = gene))
+
+ggplot(top_any, aes(x = gene, y = n)) +
+  geom_point(size = 2) + 
+  geom_segment(aes(x=gene, xend=gene, y=0, yend=n)) +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(breaks = seq(0, max(top_any$n) + 10, 20), expand = c(0,0.1)) + # Set y-axis ticks to 1, 2, 3, 4, ...
+  theme(panel.grid.major = element_blank()) +
+  labs(x = "Gene", y = "# occurances", title = "Top 50 Most Frequent Differentially Expressed Genes") 
+
+ggsave(device = "eps", width = 8, height = 4, units = "in", filename = "FigureS7B.eps")
+
+
+```
+
+
+
+```{r}
+
+ct_pert <- DEG_results %>% 
+  ungroup() %>%
+  mutate(perturbation = factor(perturbation)) %>%
+  filter(FDR < 0.05, cluster_ncell > 800, abs(logFC) > 0.5) %>%
+  dplyr::count(perturbation, cell_type, .drop = FALSE) %>% #count number of degs for every perturbation / celltype
+  filter(n > 10) %>%
+  dplyr::count(perturbation, .drop = FALSE) %>% # counts number of cell types with DEGs >= 10
+  arrange(desc(n)) %>% 
+  mutate(perturbation = factor(perturbation, levels = perturbation))
+
+ggplot(ct_pert, aes(x = perturbation, y = n)) +
+  geom_point(size = 2) + 
+  geom_segment(aes(x=perturbation, xend=perturbation, y=0, yend=n)) + # Change bar color to black
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(breaks = seq(0, 50, 5), expand = c(0,0.1), limits = c(0,36)) + # Set y-axis ticks to 1, 2, 3, 4, ...
+  theme(panel.grid.major = element_blank()) +
+  labs(x = "Mutation", y = "# Perturbed Cell Types", title = "Number of perturbed cell types / mutation", caption = paste0("Median: ", median(ct_pert$n)))
+
+ggsave(device = "eps", width = 8, height = 4, units = "in", filename = "FigureS7A.eps")
+
+```
+
+
+
+```{r}
+#### Run Hooke on MIC-Drop data####
+
+micdrop@meta.data$sample_name <- NULL ##this column caused problems
+
+#Convert seurat object to cell data set object
+cds_obj <- SeuratWrappers::as.cell_data_set(micdrop)
+
+#run?#
+valid_cells <- row.names(subset(pData(cds_obj), class != "ND"))
+cds_obj <- cds_obj[,valid_cells]
+
+#initialize hooke results dataframe
+res_tbl <- data.frame()
+
+for(target in unique(colData(cds_obj)$class)){
+  
+  if(target != "ND"){
+  
+    print(paste0("Now testing - ", target))
+    
+    #for each tested mutation, we categorize cells as having the mutation or "other"
+    colData(cds_obj)$ret <- ifelse(colData(cds_obj)$class == target, target, "other")
+    
+    #update the id column to concatenate mutation and replicate number
+    colData(cds_obj)$ID <- paste0(colData(cds_obj)$ret, "_",colData(cds_obj)$group)
+    
+    #convert to factor
+    colData(cds_obj)$ID <- as.factor(colData(cds_obj)$ID)
+      
+    #create cell count set object
+    ccs_obj <- new_cell_count_set(cds_obj, 
+                               sample_group = "ID", 
+                               cell_group = "curated_cell_type2")
+    
+    #create cell count model  - ~ret referring to mutation column
+    ccm_obj <- new_cell_count_model(ccs_obj, main_model_formula_str = "~ ret")
+      
+    #estimate abundances for cells with target mutation and other
+    comp_mut <- estimate_abundances(ccm_obj, tibble::tibble(ret = target))
+  
+    comp_other <- estimate_abundances(ccm_obj, tibble::tibble(ret = "other"))
+    
+    #compare abundances - calculate q values and logFC for mutant cells in each cluster
+    contrast_tbl <- compare_abundances(ccm_obj, comp_other, comp_mut)
+    
+    #rename and select relevant columns
+    result <- contrast_tbl %>%
+        mutate(perturbation = target) %>%
+        select(perturbation, cell_group, delta_log_abund,delta_p_value, delta_q_value)
+    
+    #append results to result table
+    res_tbl <- rbind(res_tbl, result)
+  }
+}
+
+## saveRDS(res_tbl, file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/hooke_4_19_24.rds")
+
+res_tbl
+```
+
+
+
+```{r}
+hooke <- res_tbl %>% dplyr::rename("cell_type" = "cell_group")
+
+#hooke <- hooke %>% 
+#  left_join(clusternames, by = "cell_type") %>%
+#  mutate(cell_type = paste0(seurat_clusters, " - ", cell_type))
+
+
+hooke <- hooke %>% 
+  mutate(signed_qval = case_when(
+    delta_log_abund > 0 ~ -log10(delta_q_value),
+    delta_log_abund < 0 ~ log10(delta_q_value)
+  ))
+
+# Filter data into three parts
+#hooke_part1 <- hooke %>%
+#  filter(cell_type %in% dimnames(hm@matrix)[[2]][1:23])  # Example: 10 cell types in each part
+#hooke_part2 <- hooke %>%
+#  filter(cell_type %in% dimnames(hm@matrix)[[2]][24:45])
+#hooke_part3 <- hooke %>%
+#  filter(cell_type %in% dimnames(hm@matrix)[[2]][46:55])
+
+
+hooke %>% filter(delta_q_value < 0.05, abs(delta_log_abund) > 0.5, perturbation == "tp63")
+```
+
+   
+
+```{r}
+
+# Function to create the common plot with shared scales
+common_plot <- function(data, hide_y_axis_labels = FALSE, tissue = "label", tiss_color = "grey", FDR_th = 0.05, logFC_th = 0.5) {
+  ## For the purposes of plotting, we filter non-significant datapoints (set to 0) by FDR and logFC thresholds
+  data <- data %>% 
+  mutate(signed_qval = case_when(
+    abs(signed_qval) < -log10(FDR_th) ~ 0,
+    TRUE ~ signed_qval
+  ),
+  delta_log_abund = case_when(
+    abs(signed_qval) < -log10(FDR_th) ~ 0,
+    abs(delta_log_abund) < logFC_th ~ 0,
+    TRUE ~ delta_log_abund
+  ))
+  print(data)
+
+  plot <- ggplot(data, aes(x = cell_type, y = perturbation)) + 
+    geom_point(aes(fill = signed_qval, size = abs(delta_log_abund)), alpha = 0.75, shape = 21) + 
+    scale_size_continuous(limits = c(0.5, 3), range = c(4,30), guide = FALSE, name = "log(FC)") +
+    scale_fill_gradientn(colors = c("blue","white","red"), guide = FALSE) + 
+    theme_minimal() +
+    theme(
+          text = element_text(family = "Arial"),
+          axis.text.y = element_text(face = "italic", size = 12),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+          axis.title.x = element_blank(),  # Hide x-axis title
+          axis.ticks.x = element_blank(),  # Hide x-axis ticks
+          panel.border = element_rect(color = "black", fill = NA)) +
+    ylab("")
+  
+  # Conditionally hide y-axis labels
+  if (hide_y_axis_labels) {
+    plot <- plot + theme(axis.text.y = element_blank())  # Hide y-axis text labels
+  }
+  
+
+  return(plot)
+}
+
+# Create plots for each panel
+plot_part1 <- common_plot(hooke_part1, tissue = "Neural", tiss_color = "#B2B8E0") 
+plot_part2 <- common_plot(hooke_part2, tissue = "Mesoderm / Endoderm", tiss_color = "#FFCD82", hide_y_axis_labels = TRUE)
+plot_part3 <- common_plot(hooke_part3 ,tissue = "Non-neural Ectoderm", tiss_color = "#85C989", hide_y_axis_labels = TRUE) +
+  scale_size_continuous(
+    limits = c(0.5, 3),
+    range = c(4, 15),
+    guide = "legend",
+    name = "log(FC)"
+  ) +
+  scale_fill_gradientn(
+    colors = c("blue", "white","white", "red"),
+    name = "log(signed q)",
+    limits = c(-4, 4)
+  ) 
+
+final_plot <- plot_part1 + plot_part2 + plot_part3
+
+final_plot
+
+plot_part1
+
+
+ggsave("/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 2/Figure_2D_3.png", 
+       device = "png",
+       width = 3.5,
+       height = 9.5)
+```
+
+```{r}
+
+#Filter to only include cell types that were in DEG heatmap (>800 cells in cluster)
+
+hooke_subset <- hooke %>% 
+  filter(cell_type %in% dimnames(hm@matrix)[[1]]) 
+
+#make list of perturbations that have no significant DA effect
+hooke_significant_pert <- hooke_subset %>%
+  filter(delta_q_value < 0.05, abs(delta_log_abund) > 0.5) %>%
+  select(perturbation) %>%
+  distinct() %>%
+  pull(perturbation)
+
+hooke_significant_ct <- hooke_subset %>%
+  filter(delta_q_value < 0.05, abs(delta_log_abund) > 0.5) %>%
+  select(cell_type) %>%
+  distinct() %>%
+  pull(cell_type)
+
+ct_order <- intersect(dimnames(hm@matrix)[[1]], hooke_significant_ct)
+
+
+hooke_subset <- hooke_subset %>% 
+  filter(perturbation %in% hooke_significant_pert, cell_type %in% hooke_significant_ct)
+
+hooke_subset 
+ 
+size_mat <- hooke_subset %>% 
+  mutate(abs_delta_abund = abs(delta_log_abund)) %>%
+  mutate(abs_delta_abund = ifelse(abs_delta_abund < 0.5 | is.na(abs_delta_abund) | delta_q_value > 0.05, 0, abs_delta_abund)) %>%
+  select(cell_type, perturbation, abs_delta_abund) %>% 
+  pivot_wider(names_from = cell_type, values_from = abs_delta_abund) %>%
+  column_to_rownames(var = "perturbation") %>%
+  as.matrix()
+
+size_mat <- size_mat[, ct_order]
+spacer <- matrix(NA, nrow = nrow(size_mat), ncol = 1)  # Spacer column (could use 0 instead of NA)
+colnames(spacer) <- " "  # Name the spacer column
+size_mat <- cbind(size_mat[, 1:13], spacer, size_mat[, 14:29], spacer, size_mat[,30:37])  # Add spacer after the second column
+size_mat <- size_mat[order(rownames(size_mat)),]
+size_mat <- t(size_mat)
+
+color_mat <- hooke_subset %>%   
+  mutate(signed_log_qval = case_when(
+    delta_log_abund > 0.5 & delta_q_value < 0.05 ~ -log10(delta_q_value),
+    delta_log_abund < -0.5 & delta_q_value < 0.05 ~ log10(delta_q_value),
+    TRUE ~ 0)) %>%
+  select(cell_type, perturbation, signed_log_qval) %>% 
+  pivot_wider(names_from = cell_type, values_from = signed_log_qval) %>%
+  column_to_rownames(var = "perturbation") %>%
+  as.matrix()
+
+color_mat <- color_mat[, ct_order]
+color_mat <- cbind(color_mat[, 1:13], spacer, color_mat[, 14:29], spacer, color_mat[,30:37])  # Add spacer after the second column
+color_mat <- color_mat[order(rownames(color_mat)),]
+color_mat <- t(color_mat)  
+
+
+png(filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 2/Figure_2D.png", height = 10, width = 13, units = "in", res = 300 )
+
+bubble <- bubbleHeatmap(colorMat = color_mat, sizeMat = size_mat, legendTitles = c(expression("Cell Abundance\nFold Change"), "Signed\nlog(q)"), diameter = 1.1, showTopLabels = TRUE)
+bubble$children$TopLabels$just <- c("right","top")
+bubble$children$TopLabels$y <- unit(-48.25, "lines")
+grid.draw(bubble)
+
+dev.off()
+```
+
+```{r}
+hooke <- readRDS( file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/hooke_4_19_24.rds")
+```
+
+```{r}
+hooke_subset %>% filter(perturbation == "tp63")
+hooke %>% filter(delta_q_value < 0.05)
+```
+
+
+```{r}
+##make vector of col names from DEG heatmap
+perturb_order <- hm@column_names_param$labels[column_order(hm)]
+#Filter to only include cell types that were in DEG heatmap (>800 cells in cluster)
+
+hooke_subset <- hooke %>% 
+  filter(cell_type %in% dimnames(hm@matrix)[[1]]) 
+
+#make list of perturbations that have no significant DA effect
+hooke_significant_pert <- hooke_subset %>%
+  filter(delta_q_value < 0.05, abs(delta_log_abund) > 0.5) %>%
+  select(perturbation) %>%
+  distinct() %>%
+  pull(perturbation)
+
+hooke_significant_ct <- hooke_subset %>%
+  filter(delta_q_value < 0.05, abs(delta_log_abund) > 0.5) %>%
+  select(cell_type) %>%
+  distinct() %>%
+  pull(cell_type)
+
+ct_order <- intersect(dimnames(hm@matrix)[[1]], hooke_significant_ct)
+
+
+hooke_subset <- hooke_subset %>% 
+  filter(cell_type %in% hooke_significant_ct) %>%
+  mutate(perturbation = factor(perturbation, levels =(dimnames(hm@matrix)[[2]])))
+
+hooke_subset
+ 
+size_mat <- hooke_subset %>% 
+  mutate(abs_delta_abund = abs(delta_log_abund)) %>%
+  mutate(abs_delta_abund = ifelse(abs_delta_abund < 0.5 | is.na(abs_delta_abund) | delta_q_value > 0.05, 0, abs_delta_abund)) %>%
+  select(cell_type, perturbation, abs_delta_abund) %>% 
+  pivot_wider(names_from = cell_type, values_from = abs_delta_abund) %>%
+  column_to_rownames(var = "perturbation") %>%
+  as.matrix()
+
+size_mat <- size_mat[dimnames(hm@matrix)[[2]], ct_order]
+spacer <- matrix(NA, nrow = nrow(size_mat), ncol = 1)  # Spacer column (could use 0 instead of NA)
+colnames(spacer) <- " "  # Name the spacer column
+size_mat <- cbind(size_mat[, 1:13], spacer, size_mat[, 14:29], spacer, size_mat[,30:37])  # Add spacer after the second column
+size_mat <- t(size_mat)
+size_mat <- size_mat[, perturb_order]
+
+color_mat <- hooke_subset %>%   
+  mutate(signed_log_qval = case_when(
+    delta_log_abund > 0.5 & delta_q_value < 0.05 ~ -log10(delta_q_value),
+    delta_log_abund < -0.5 & delta_q_value < 0.05 ~ log10(delta_q_value),
+    TRUE ~ 0)) %>%
+  select(cell_type, perturbation, signed_log_qval) %>% 
+  pivot_wider(names_from = cell_type, values_from = signed_log_qval) %>%
+  column_to_rownames(var = "perturbation") %>%
+  as.matrix()
+
+color_mat <- color_mat[dimnames(hm@matrix)[[2]], ct_order]
+color_mat <- cbind(color_mat[, 1:13], spacer, color_mat[, 14:29], spacer, color_mat[,30:37])  # Add spacer after the second column
+color_mat <- t(color_mat)  
+color_mat <- color_mat[,perturb_order]
+
+
+png(filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 2/Figure_2D.png", height = 10, width = 14, units = "in", res = 300 )
+
+bubble <- bubbleHeatmap(colorMat = color_mat, sizeMat = size_mat, legendTitles = c(expression("Cell abundance\nfold change"), "Signed\nlog(q)"), diameter = 1.1, showTopLabels = TRUE)
+
+bubble$children$TopLabels$just <- c("right","top")
+
+bubble$children$TopLabels$y <- unit(-36, "lines")
+
+bubble$children$LeftLabels$x <- unit(2, "lines")
+
+bubble$children$GridSq$gp <- gpar(lwd = 1.2, col = "lightgrey")
+
+bubble$children$TopLabels$gp <- gpar(fontface = "italic", fontfamily = "Arial", fontsize = 16)
+
+bubble$children$LeftLabels$gp <- gpar(fontfamily = "Arial", fontsize = 16)
+
+grid.draw(bubble)
+
+dev.off()
+
+size_mat
+
+bubble$children$GridSq$width
+```
+
+
+```{r}
+hooke_filtered <- rbind(hooke_part1, hooke_part2, hooke_part3)
+hooke_filtered
+
+hooke_filtered %>% filter(delta_q_value < 0.01 , abs(delta_log_abund) > 0.5) %>% select(perturbation, cell_type, delta_q_value, delta_log_abund, signed_qval)
+```
+
+```{r}
+hooke2 <- total_DEG %>%
+  select(cell_type, cluster_ncell, perturbation, ncell_perturbed) %>%
+  right_join(hooke, by = c("cell_type","perturbation"))
+hooke2
+
+hooke2 %>% 
+  distinct() %>%
+  filter(perturbation == "tbxta")
+
+clust_pert <- hooke2 %>% 
+  distinct() %>%
+  mutate(perturbation = factor(perturbation)) %>%
+  filter(delta_q_value < 0.05, abs(delta_log_abund) > 0.5, cluster_ncell > 800) %>%
+  dplyr::count(perturbation, .drop = FALSE) %>% 
+  arrange(desc(n)) %>% 
+  mutate(perturbation = factor(perturbation, levels = perturbation))
+  
+
+ggplot(clust_pert, aes(x = perturbation, y = n)) +
+  geom_bar(stat = "identity", fill = "black") +  # Change bar color to black
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(breaks = seq(0, max(clust_pert$n), 1), expand = c(0,0.1)) + # Set y-axis ticks to 1, 2, 3, 4, ...
+  theme(panel.grid.major = element_blank()) +
+  labs(x = "Mutation", y = "# Cell types altered", title = "Number of altered cell type abundances / mutant", caption = paste0("Median: ", median(clust_pert$n)))
+```
+
+```{r}
+
+cells_highlight <- micdrop@meta.data %>%
+  mutate(cells_highlight = ifelse(class == "rx3", "rx3", class)) %>%
+  filter(cells_highlight == "rx3") %>%
+  pull(cell_barcode)
+
+micdrop@meta.data <- micdrop@meta.data %>%
+  mutate(cells_highlight = ifelse(class == "tbxta", "tbxta", "other"))
+
+micdrop@meta.data$cells_highlight
+
+DimPlot(micdrop, group.by = cells_highlight)
+
+
+dittoDimPlot(micdrop, var = "cells_highlight", order = "increasing", color.panel = c("grey", "red"))
+
+```
+
+```{r}
+
+for(pert in unique(micdrop@meta.data$class)){
+  
+  if(pert != "ND"){
+     micdrop@meta.data <- mutate(micdrop@meta.data, display = ifelse(class == pert, pert, "other"))
+  }
+  micdrop@meta.data <- micdrop@meta.data %>% mutate(display = factor(display, levels = c("other",pert)))
+  Idents(micdrop) <- "display"
+  DimPlot(micdrop, group.by = "display", cols = c("red","grey"), pt.size = 3, order = c("other",pert) ) + NoAxes() + ggtitle(paste0(pert))
+  ggsave(filename = paste0("/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/autonomyscratch/perturbation_loop_gif/", pert,".png"), device = "png")
+}
+
+
+for(pert in unique(micdrop@meta.data$class)){
+  
+  if(pert != "ND"){
+    
+  micdrop@meta.data <- mutate(micdrop@meta.data, disp = ifelse(class == pert, pert, "other"))
+  
+  Meta_Highlight_Plot(micdrop, meta_data_column = "disp", meta_data_highlight = pert, highlight_color = "red", pt.size = 1, raster = FALSE) + NoLegend() + NoAxes() + ggtitle(pert)
+  
+  ggsave(filename = paste0("/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/autonomyscratch/perturbation_loop_gif/", pert,".png"), device = "png")
+  
+  }
+}
+
+
+
+```
+
+```{r}
+DefaultAssay(micdrop) <- "RNA"
+
+FeaturePlot_scCustom(micdrop, features = "dlx1a", reduction = 'umap', raster = FALSE) + NoAxes()
+
+```
+```{r}
+DA_stats <- hooke %>% 
+  mutate(perturbation = factor(perturbation)) %>%
+  filter(cluster_ncell > 800, abs(delta_log_abund) > 0.5, delta_q_value < 0.05) %>%
+  dplyr::count(perturbation, .drop = FALSE) %>%
+  arrange(desc(n)) %>%
+  mutate(perturbation = factor(perturbation, levels = perturbation))
+
+ggplot(DA_stats, aes(x = perturbation, y = n)) +
+  geom_point(size = 2) + 
+  geom_segment(aes(x=perturbation, xend=perturbation, y=0, yend=n)) + # Change bar color to black
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(breaks = seq(0, 50, 1), expand = c(0,0.1), limits = c(0,9)) + # Set y-axis ticks to 1, 2, 3, 4, ...
+  theme(panel.grid.major = element_blank()) +
+  labs(x = "Mutation", y = "Differentially Abundant Cell Types", title = "Number of Cell Types with Differential Abundance", caption = paste0("Median: ", median(DA_stats$n)))
+
+ggsave(device = "eps", width = 8, height = 3, units = "in", filename = "FigureS8.eps")
+
+```
+
+
+```{r}
+hooke
+
+nDEG_DF <- DEG_results %>% 
+  filter(FDR < 0.05) %>% 
+  group_by(perturbation) %>%
+  mutate(cell_type = factor(cell_type)) %>%
+  dplyr::count(cell_type, .drop = FALSE) %>% 
+  rename("n" = "nDEG") %>%
+  right_join(DEG_results, by = c("perturbation","cell_type")) %>%
+  select(perturbation, cell_type, cluster_ncell, nDEG) %>%
+  distinct() 
+
+hooke %>% 
+  left_join(nDEG_DF, by = c("cell_type", "perturbation")) %>% 
+  filter(cluster_ncell.x > 800) %>% 
+  ggplot(aes(x = nDEG, y = -log(delta_q_value))) + 
+  geom_point()
+
+
+```
+```{r}
+FeaturePlot_scCustom(micdrop, features = "neurod1", reduction = 'umap')
+```
+
+```{r}
+
+VlnPlot(micdrop, features = 'neurod1', raster = FALSE) + NoLegend()
+
+```
+
