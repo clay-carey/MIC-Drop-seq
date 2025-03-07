@@ -1,0 +1,445 @@
+---
+title: "figure_3_new_scratch"
+author: "Clay Carey"
+date: "2024-09-23"
+output: html_document
+---
+
+```{r setup}
+
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 3/")
+
+```
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(scCustomize)
+library(viridis)
+library(cowplot)
+library(ggpubr)
+
+```
+
+```{r}
+micdrop <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/micdrop_4_19_24.rds")
+```
+
+```{r}
+DimPlot(micdrop)
+```
+
+```{r}
+DefaultAssay(micdrop) <- "RNA"
+Idents(micdrop) <- "curated_cell_type2"
+
+##define cell types that make up somitic mesoderm
+som_ct <- c("Sclerotome", 
+            "Sclerotome - Chondrogenic", 
+            "Myotome") 
+
+meox_genes <- c("tcf15","cthrc1a","nid1a","vwde","thbs4b","cilp","comp")
+
+
+micdrop@meta.data <- micdrop@meta.data %>%
+  mutate(meox = ifelse(class == "meox1", "meox1", "other"))
+
+p1 <- DotPlot_scCustom(micdrop, idents = som_ct, features = meox_genes , scale = FALSE, group.by = 'meox', flip_axes = TRUE) +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_colour_viridis(option="magma", direction = -1) +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white"))) + 
+  scale_y_discrete(labels = c(expression(italic(meox1), "other"))) +
+  theme(axis.text.x = element_text(angle =45, hjust = 1, size = 10, family = "Arial"),
+    axis.text.y = element_text(size = 10, family = "Arial", face = "italic"),                        
+    legend.title = element_text(size = 10, family = "Arial"),                       
+    legend.text = element_text(size = 10, family = "Arial"),                        
+    axis.title = element_text(size = 10, family = "Arial")
+   ) + 
+  labs(color = "hello") +
+  ylab(element_blank()) + 
+  xlab("Mutant")
+
+p1
+
+
+ggsave(filename = "Figure3A.svg", 
+             device = "svg",
+             width = 3, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+
+```
+
+
+```{r}
+DefaultAssay(micdrop) <- "RNA"
+
+micdrop@meta.data <- micdrop@meta.data %>% 
+  mutate(somitic_labs = case_when(
+    curated_cell_type2 %in% c("Somites - Early",
+                              "Somites - Mid", 
+                              "Somites - Late", 
+                              "Sclerotome", 
+                              "Sclerotome - Chondrogenic", 
+                              "Myotome",
+                              "Slow Muscle") ~ curated_cell_type2,
+                               TRUE ~ " "
+  ))
+
+Idents(micdrop) <- "somitic_labs"
+
+FeaturePlot_scCustom(micdrop, features = 'meox1', reduction = 'umap', label = TRUE) + ggtitle("meox1 Expression") + NoAxes()
+
+Idents(micdrop) <- "curated_cell_type2"
+
+```
+```{r}
+
+p1 <- FeaturePlot(micdrop, features = "meox1", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
+p2 <- FeaturePlot(micdrop, features = "comp", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
+
+sc <- scale_color_gradientn(colors = c("lightgrey",viridis(100, option = "magma", direction = -1)), limits = c(0,4)) 
+
+p3 <- p1 + sc  + 
+  theme(plot.title = element_text(size = 12, face = "italic"),
+        legend.position = "bottom",   # Position legend at the bottom
+        legend.direction = "horizontal"  # Legend items in a horizontal li
+  ) 
+p4 <- p2 + sc  + 
+  theme(plot.title = element_text(size = 12, face = "italic"),
+        legend.position = "bottom",   # Position legend at the bottom
+        legend.direction = "horizontal"  # Legend items in a horizontal li
+  ) 
+
+
+p3 + NoLegend() + ggtitle("")
+
+ggsave(filename = "Figure3B.png", 
+             device = "png",
+             width = 3, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+p4 + NoLegend() + ggtitle("")
+
+ggsave(filename = "Figure3B-2.png", 
+             device = "png",
+             width = 3, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+
+
+
+```{r}
+p1 <- FeaturePlot(micdrop, features = "gata2a", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
+
+p1 + sc  + 
+  theme(plot.title = element_text(size = 12, face = "italic"),
+        legend.position = "bottom",   # Position legend at the bottom
+        legend.direction = "horizontal"  # Legend items in a horizontal li
+  ) 
+
+ggsave(filename = "Figure3F.svg", 
+             device = "svg",
+             width = 3, 
+             height = 4,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+```{r}
+p1 <- FeaturePlot(micdrop, features = "dlx1a", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
+
+p1 + sc  + 
+  theme(plot.title = element_text(size = 12, face = "italic"),
+        legend.position = "bottom",   # Position legend at the bottom
+        legend.direction = "horizontal"  # Legend items in a horizontal li
+  ) 
+
+ggsave(filename = "Figure3J.svg", 
+             device = "svg",
+             width = 3, 
+             height = 4,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+
+```{r}
+meta <- micdrop@meta.data
+
+##dataframe with cell counts for each replicate / cell type / mutant
+counts <- meta %>% 
+  group_by(class, group) %>% 
+  dplyr::count(curated_cell_type2) %>%
+  mutate(total_perturb = sum(n),
+         pct_cluster = n / total_perturb ) 
+
+
+counts %>% filter(curated_cell_type2 == "Midbrain - Optic Tectum") %>%
+  mutate(class = ifelse(class %in% c("sox11b","mafba","neurod1","nkx2.7"), class, "other")) %>%
+  mutate(class = factor(class, levels = c("other","sox11b","mafba","neurod1","nkx2.7"))) %>%
+  ggplot(aes(x=class, y = pct_cluster * 100)) +
+  geom_boxplot(fill = 'grey', outliers = FALSE, size = 0.2) + 
+  ylim(c(0,2.0)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust =1, size = 10),
+        axis.text.y = element_text(size = 10, family = "Arial"),
+        axis.title.x = element_text(size = 10, family = "Arial"),
+        axis.title.y = element_text(size = 10, family = "Arial"),
+        axis.line = element_line(size = 0.2)) +
+  labs( y = "% cells in cluster", x = "Mutation") +
+  scale_x_discrete(labels = c("other" = "other", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "mafba" = expression(italic("mafba")),
+                              "neurod1" = expression(italic("neurod1")),
+                              "nkx2.7" = expression(italic("nkx2.7"))))
+
+ggsave(filename = "Figure3E.eps", 
+             device = "eps",
+             width = 1.75, 
+             height = 2.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+
+```{r}
+meta <- micdrop@meta.data
+
+##dataframe with cell counts for each replicate / cell type / mutant
+counts <- meta %>% 
+  group_by(class, group) %>% 
+  dplyr::count(curated_cell_type2) %>%
+  mutate(total_perturb = sum(n),
+         pct_cluster = n / total_perturb ) 
+
+
+counts %>% filter(curated_cell_type2 == "Diencephalon - Hypothalamus") %>%
+  mutate(class = ifelse(class %in% c("sox11b","rx3"), class, "other")) %>%
+  mutate(class = factor(class, levels = c("other","sox11b","rx3"))) %>%
+  ggplot(aes(x=class, y = pct_cluster * 100)) +
+  geom_boxplot(fill = 'grey', outliers = FALSE, size = 0.2) + 
+  ylim(c(0,4)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust =1, size = 10),
+        axis.text.y = element_text(size = 10, family = "arial"),
+        axis.title.x = element_text(size = 10, family = "arial"),
+        axis.title.y = element_text(size = 10, family = "arial"),
+        axis.line = element_line(size = 0.2)) +
+  labs( y = "% cells in cluster", x = "Mutation") +
+  scale_x_discrete(labels = c("other" = "other", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "rx3" = expression(italic("rx3"))
+                              ))
+
+ggsave(filename = "Figure3I.eps", 
+             device = "eps",
+             width = 1.5, 
+             height = 2.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+```{r}
+input <- read.csv(file = '/Users/claytoncarey/Downloads/gata_measurements.csv')
+gata <- input %>% filter(probe == "gata")
+dlx <- input %>% filter(probe == "dlx")
+```
+
+```{r}
+gata <- gata %>% 
+  mutate(norm.head = (mean(head.width) / head.width),
+         norm.yolk = (mean(yolk.width) / yolk.width),
+         area.head.norm = stain.area * norm.head,
+         area.yolk.norm = stain.area * norm.yolk)
+
+dlx <- dlx %>% 
+  mutate(norm.head = (mean(head.width) / head.width),
+         norm.yolk = (mean(yolk.width) / yolk.width),
+         area.head.norm = stain.area * norm.head,
+         area.yolk.norm = stain.area * norm.yolk)
+
+
+gata
+dlx
+```
+
+```{r}
+gata <- gata %>% mutate(genotype = factor(genotype, levels = c("scramble", "sox11b", "mafba", "neurod1", "nkx2.7")))
+compare <- list(c("scramble","sox11b"), c("scramble","mafba"), c("scramble","neurod1"),c("scramble","nkx2.7"))
+
+
+ggplot(gata, aes(x = genotype, y = area.head.norm)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) +
+  labs(x = "Mutation", y = "Normalized Stain Area") +
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "mafba" = expression(italic("mafba")),
+                              "neurod1" = expression(italic("neurod1")),
+                              "nkx2.7" = expression(italic("nkx2.7")))) +
+  stat_compare_means(comparisons = compare, 
+                     method = "t.test", 
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
+  ylim(0,13000)
+  
+
+ggsave(filename = "Figure3H.eps", 
+             device = "eps",
+             width = 2, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+
+```{r}
+dlx <- dlx %>% mutate(genotype = factor(genotype, levels = c("scramble", "sox11b", "rx3")))
+
+ggplot(dlx, aes(x = genotype, y = area.head.norm)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) + 
+  labs(x = "Mutation", y = "Normalized Stain Area")+
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "rx3" = expression(italic("rx3"))))
+
+
+ggsave(filename = "Figure3L.eps", 
+             device = "eps",
+             width = 1.25, 
+             height = 2.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")                      
+
+```
+```{r}
+dlx <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 3/dlx_measurements.csv")
+dlx
+compare <- list(c("scramble","sox11b"), c("scramble","rx3"))
+
+dlx <- dlx %>% mutate(norm.head = (mean(head_width) / head_width), 
+                      area.normalized = pixel_area * norm.head,
+                      injection = factor(injection, levels = c("scramble","sox11b","rx3"))) 
+
+dlx
+
+ggplot(dlx, aes(x = injection, y = area.normalized)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) + 
+  labs(x = "Mutation", y = "Normalized Stain Area")+
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "rx3" = expression(italic("rx3")))) +
+  stat_compare_means(comparisons = compare, 
+                     method = "t.test", 
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) +
+  ylim(0,15000)
+
+
+ggsave(filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 3/Figure3L.eps", 
+             device = "eps",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent") 
+
+```
+
+
+
+
+```{r}
+micdrop@meta.data <- micdrop@meta.data %>%
+  mutate(gata_tectum = ifelse(class %in% c("sox11b","mafba","neurod1","nkx2.7"), class, "other")) %>%
+  mutate(gata_tectum = factor(gata_tectum, levels = c("other","sox11b", "mafba", "neurod1","nkx2.7")))
+
+VlnPlot(micdrop, features = 'gata2a', 
+        idents = "Midbrain - Optic Tectum", 
+        group.by = "gata_tectum", 
+        cols = rep("grey",5)) + 
+    NoLegend() +
+    ggtitle("gata2a expression - Optic Tectum") +
+    theme(plot.title = element_text(size = 10)) + 
+    scale_x_discrete(labels = c("other" = "other", 
+                              "sox11b" = expression(italic(sox11b)),
+                              "mafba" = expression(italic(mafba)),
+                              "neurod1" = expression(italic(neurod1)),
+                              "nkx2.7" = expression(italic(nkx2.7))))
+
+ggsave(filename = "FigureS3.1.eps", 
+             device = "eps",
+             width = 3, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")       
+```
+```{r}
+
+micdrop@meta.data <- micdrop@meta.data %>%
+  mutate(dlx_hypo = ifelse(class %in% c("sox11b","rx3"), class, "other")) %>%
+  mutate(dlx_hypo = factor(dlx_hypo, levels = c("other","sox11b", "rx3")))
+
+VlnPlot(micdrop, features = 'dlx1a', 
+        idents = "Diencephalon - Hypothalamus", 
+        group.by = "dlx_hypo", 
+        cols = rep("grey",3)) + 
+    NoLegend() +
+    ggtitle("dlx1a expression - Hypothalamus") +
+    theme(plot.title = element_text(size = 10)) + 
+    scale_x_discrete(labels = c("other" = "other", 
+                              "sox11b" = expression(italic(sox11b)),
+                              "rx3" = expression(italic(rx3))
+                              ))
+
+ggsave(filename = "FigureS3.1B.eps", 
+             device = "eps",
+             width = 3, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")  
+
+```
+
+
+
+
