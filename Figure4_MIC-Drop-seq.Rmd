@@ -1,0 +1,1034 @@
+---
+title: "Figure_4"
+author: "Clay Carey"
+date: "2025-01-29"
+output: html_document
+---
+
+```{r setup}
+
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/")
+
+```
+
+
+Import requried packages
+```{r message=FALSE, warning=FALSE}
+
+library(viridis)
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(igraph)
+library(ComplexHeatmap)
+library(viridis)
+library(scCustomize)
+library(EnhancedVolcano)
+library(ggpubr)
+
+```
+
+Import file dcell_lineage, which has each cell type in the daniocell dataset and corresponding abbreviated lineage codes
+Import daniocell data (dcell)
+Import micdrop metadata, which includes a curated lineage sequence for each cell type
+```{r}
+dcell_lineage <- read_csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/DEG_V3/dcell_lineage_codes.csv")
+
+dcell <- readRDS(file = "/Users/claytoncarey/Desktop/dcell_3_24.rds")
+
+combined.meta <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/DEG_V3/lineagemeta.rds")
+
+head(dcell_lineage)
+
+```
+
+trim excess data from the daniocell dataset, only including expression of micdrop-seq target genes, then append lineage codes to the metadata.
+```{r}
+
+dcell <- DietSeurat(dcell, features = unique(combined.meta$class)) ##this function removes all gene expression data except for the CIRSPR target genes
+
+dcell@meta.data <- dcell@meta.data %>% left_join(dcell_lineage, by = "full_ident") ##add the lineage identifiers to the 
+
+rownames(dcell@meta.data) <- dcell@meta.data$CELL
+
+```
+
+Now we calculate the expression for each target gene in each lineage using the seurat AverageExpression() function, scale expression values to a range between 0-1, and then transform the data into a dataframe.
+```{r}
+
+dcell_target_exp <- AverageExpression(dcell, group.by = "lineage_ident", features = unique(combined.meta$class)) #Extract gene expression values for perturbed geens in each celltype
+
+dcell_target_exp <- data.frame(dcell_target_exp, check.names = FALSE) #Convert to dataframe
+
+names(dcell_target_exp) <- gsub("RNA.","",names(dcell_target_exp)) #remove "RNA" prefix from col names
+
+range01 <- function(x){(x-min(x))/(max(x)-min(x))} #scaling function
+
+dcell_target_scaled <- dcell_target_exp %>% 
+  rownames_to_column(var = "perturbation") %>% #make new column with row names (perturbation)
+  pivot_longer(cols = -perturbation, names_to = "lineage", values_to = "expression") %>% ##pivot to long format, row for each pert/ct combination
+  group_by(perturbation) %>%
+  mutate(scaled_expression = range01(expression)) #apply scaling function
+  
+head(dcell_target_scaled)
+
+```
+
+make a viridis color palette for scaled expression in each cell type and add it to the dataframe as a new column
+```{r}
+
+color_key <- data.frame(color = viridis(101, option = "D"), color_value = c(0:100)) ##make a dataframe with a column with rows 0:100 and then viridis color palette
+
+dcell_target_scaled <- dcell_target_scaled %>% 
+  mutate(color_value = round(scaled_expression * 100)) %>% #convert the scaled expression to a value between 0-100, so it can be merged with color palette
+  left_join(color_key, by = "color_value") 
+
+dcell_target_scaled 
+
+```
+
+Load in color palette and coordinates for igraph plotting
+```{r}
+##load precomputed coordinates for igraph network plot
+coords <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/Autonomy_igraph/coords_layout.rds")
+#load curated groupings and color palettes for igraph 
+community_colors <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/autonomyscratch/community_colors.csv", header = TRUE)
+#add transparency value
+community_colors <- community_colors %>% mutate(color_trans = paste0(color,30))
+```
+
+Now we define a function to plot the lineage network with the colors highlighting each group
+```{r, fig.height=15, fig.width=15}
+
+plot_with_path <- function(gene, celltype){
+  
+  links <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/Autonomy_igraph/links_full.csv", header = TRUE)
+
+
+  nodes <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/Autonomy_igraph/nodes_full2.csv")
+
+
+  tmp_net <- graph_from_data_frame(d=links, vertices=nodes, directed=T)
+  
+  colrs <- dcell_target_scaled %>% 
+    filter(perturbation == gene) %>%
+    mutate(lineage = factor(lineage, levels = names(V(tmp_net)))) %>%
+    arrange(lineage) %>%
+    pull(color)
+  
+  colrs
+  
+  V(tmp_net)$color <- colrs[V(tmp_net)]
+  
+  lineage.path <- shortest_paths(tmp_net, 
+                            from = V(tmp_net)[cell_type == "Blastula"], 
+                             to  = V(tmp_net)[cell_type == celltype],
+                             output = "both")
+  
+  ecol <- rep("gray20", ecount(tmp_net))
+
+  ecol[unlist(lineage.path$epath)] <- "orange"
+
+  ew <- rep(2, ecount(tmp_net))
+
+  ew[unlist(lineage.path$epath)] <- 4
+  
+  ceb <- cluster_edge_betweenness(tmp_net) 
+  
+  ceb$membership <- V(tmp_net)$cell_group
+  
+  E(tmp_net)$weights
+  
+  plot( ceb, tmp_net, 
+       col = "lightblue",
+       edge.arrow.size= 0,
+       vertex.label = V(tmp_net)$cell_type, 
+       layout = coords,
+       vertex.size = 7,
+       edge.width = ew,
+       edge.color = ecol,
+       mark.border = "black",
+       mark.alpha = 0.5,
+       mark.col = community_colors$color_trans,
+       vertex.label.cex = 1.3,
+       vertex.label.color = "grey10",
+       vertex.label.bgcolor= "white",
+       vertex.label.fontface = "bold"
+       )
+  
+
+
+}
+
+plot_with_path(gene = "tbxta", celltype = "Blastula")
+
+
+
+```
+
+Now we load the micdrop-seq dataset and append a lineaege path to each cell type manually. This is neccessary to establish when the target genes are expressed in precursor cells in the defined lineage trajectory. 
+```{r}
+micdrop <- readRDS(file = '/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/micdrop_4_19_24.rds')
+micdrop@meta.data <- micdrop@meta.data %>% select(-starts_with("prediction"))
+
+meta <- micdrop@meta.data
+
+##define lineage paths shared among groups of cell types from blastula (BLS)
+PD = "_PD_BN_BLS"
+HB = "_HB_NP_NE_BN_BLS"
+NC = "_NC_NP_NE_BN_BLS"
+DEL = "_DEL_NP-L_NP_NE_BN_BLS"
+TEL = "_TEL_NP-L_NP_NE_BN_BLS"
+OP = "_OP_NP-L_NP_NE_BN_BLS"
+MB_P = "_NP-L_NP_NE_BN_BLS"
+IO = "_IO_NNE_BN_BLS"
+PE = "_PE_NNE_BN_BLS"
+NNE = "_NNE_BN_BLS"
+EN = "_EN_BNN_BLS"
+SC = "_SC_BNN_BLS"
+HMB = "_HMB_BVL_BNN_BLS"
+MYT = "_MYT_PRX_PSM_BVL_BNN_BLS"
+PRX = "_PRX_RSM_BVL_BNN_BLS"
+HMB = "_HMB_BVL_BNN_BLS"
+MS_P = "_BVL_BNN_BLS"
+BDM = "_BDM_BNN_BLS"
+GC = "_GC_BNN_BLS"
+SCL = "_SCL_PRX_PSM_BVL_BNN_BLS"
+BVL = "_BVL_BNN_BLS"
+PSM = "_PSM_BVL_BNN_BLS"
+HM = "_HM_BVL_BNN_BLS"
+
+#append lineage to each cell type in new lineage_code column
+meta <- meta %>% mutate(lineage_code = case_when(
+  curated_cell_type2 == "Vasculature - Veins" ~ paste0("VS-V",HM),
+  curated_cell_type2 == "Hemangioblasts" ~ paste0(HMB),
+  curated_cell_type2 == "Sclerotome - Chondrogenic" ~ paste0("SCL-C",SCL),
+  curated_cell_type2 == "Hatching Gland" ~ paste0("HG",BDM),
+  curated_cell_type2 == "Pronephros" ~ paste0("PRN", BVL),
+  curated_cell_type2 == "Myotome" ~ paste0(MYT),
+  curated_cell_type2 == "Somites - Late" ~ paste0("SOM-L_SOM-M_SOM-E", MYT),
+  curated_cell_type2 == "Macrophages" ~ paste0("LC-M", HMB),
+  curated_cell_type2 == "Sclerotome" ~ paste0(SCL),
+  curated_cell_type2 == "Gut Primordia" ~ paste0("EN-G", EN),
+  curated_cell_type2 == "Somites - Early" ~ paste0("SOM-E", MYT),
+  curated_cell_type2 == "Mesenchyme - Progenitors" ~ paste0("MS-P",MS_P),
+  curated_cell_type2 == "Erythroblasts" ~ paste0("ERB",HMB),
+  curated_cell_type2 == "Mesenchyme - Pharyngeal Arches" ~ paste0("MS-PA",MS_P),
+  curated_cell_type2 == "Cardiac Muscle" ~ paste0("HM-M",HM),
+  curated_cell_type2 == "Vasculature - Arteries" ~ paste0("VS-A", HMB),
+  curated_cell_type2 == "Slow Muscle" ~ paste0("SOM-S",MYT),
+  curated_cell_type2 == "Presomitic Mesoderm" ~ paste0(PSM),
+  curated_cell_type2 == "Mesenchyme - Cardiac" ~ paste0(HM),
+  curated_cell_type2 == "Neutrophils" ~ paste0("LC-N",HMB),
+  curated_cell_type2 == "Mesenchyme - Head" ~ paste0("MS-H",MS_P),
+  curated_cell_type2 == "Somites - Mid" ~ paste0("SOM-M_SOM-E",MYT),
+  curated_cell_type2 == "Notochord" ~ paste0("NCD",BDM),
+  curated_cell_type2 == "Liver Primordia" ~ paste0("EN-P",EN),
+  curated_cell_type2 == "Mesenchyme - Meninges Precursors" ~ paste0("MS-M",MS_P),
+  curated_cell_type2 == "Otic Placode" ~ paste0("PE-OT",PE),
+  curated_cell_type2 == "Pigment Cell Precursors" ~ paste0(NC),
+  curated_cell_type2 == "Periderm" ~ paste0(PD),
+  curated_cell_type2 == "Lateral Line Primordium" ~ paste0("EP-LL",PE),
+  curated_cell_type2 == "Epidermis - Midbody" ~ paste0("EP-M",NNE),
+  curated_cell_type2 == "Placodal Ectoderm" ~ paste0(PE),
+  curated_cell_type2 == "Epidermis - Anterior" ~ paste0("EP-A",NNE),
+  curated_cell_type2 == "Melanoblasts" ~ paste0("NC-M",NC),
+  curated_cell_type2 == "Epidermis - Posterior Early" ~ paste0("EP-PE",NNE),
+  curated_cell_type2 == "Ionocyte - K+ secreting" ~ paste0("IO-K",IO),
+  curated_cell_type2 == "Ionocytes - H+" ~ paste0("IO-H",IO),
+  curated_cell_type2 == "Lens Epithelium" ~ paste0("EP-L",PE),
+  curated_cell_type2 == "Xanthoblasts" ~ paste0("NC-X",NC),
+  curated_cell_type2 == "Epidermis - Pharyngeal pouch" ~ paste0("EP-PP",NNE),
+  curated_cell_type2 == "Iridophores" ~ paste0("NC-I",NC),
+  curated_cell_type2 == "Epidermis - Posterior Late" ~ paste0("EP-PL",NNE),
+  curated_cell_type2 == "Gill Neurons" ~ paste0("NC-GL",NC),
+  curated_cell_type2 == "Olfactory epithelium" ~ paste0("PE-OFE",PE),
+  curated_cell_type2 == "Olfactory Goblet" ~ paste0("PE-OFG",PE),
+  curated_cell_type2 == "Olfactory Neurons" ~ paste0("PE-OFN",PE),
+  curated_cell_type2 == "Ionocyte Progenitors" ~ paste0(IO),
+  curated_cell_type2 == "Mucus Secreting" ~ paste0("MUC",NNE),
+  curated_cell_type2 == "Ionocytes - Na+" ~ paste0("IO-N",IO),
+  curated_cell_type2 == "Hindbrain - Rhombic Lip" ~ paste0("HB-L",HB),
+  curated_cell_type2 == "Hindbrain - Rhombomeres" ~ paste0("HB-R",HB),
+  curated_cell_type2 == "Retina - Progenitors" ~ paste0("RET",OP),
+  curated_cell_type2 == "Hindbrain - Committed" ~ paste0("HB-C_HB-R",HB),
+  curated_cell_type2 == "Telencephalon" ~ paste0(TEL),
+  curated_cell_type2 == "Diencephalon" ~ paste0(DEL),
+  curated_cell_type2 == "Midbrain / Hindbrain Boundary" ~ paste0("HB-B",HB),
+  curated_cell_type2 == "Diencephalon - Ventral" ~ paste0("DEL-V",DEL),
+  curated_cell_type2 == "Spinal Cord - Proliferative" ~ paste0(SC),
+  curated_cell_type2 == "Spinal Cord - Hindbrain Motor Neurons" ~ paste0("SC-HM",SC),
+  curated_cell_type2 == "Spinal Cord - Lateral Floor Plate" ~ paste0("SC-FL",SC),
+  curated_cell_type2 == "Telencephalon - Pallium" ~ paste0("TEL-P",TEL),
+  curated_cell_type2 == "Spinal Cord - CSF-contacting neurons" ~ paste0("SC-K",SC),
+  curated_cell_type2 == "Diencephalon - Dorsal" ~ paste0("DEL-D",DEL),
+  curated_cell_type2 == "Retina - RPE" ~ paste0("RPE",OP),
+  curated_cell_type2 == "Spinal Cord - Oligodendrocyte" ~ paste0("SC-OL",SC),
+  curated_cell_type2 == "Midbrain" ~ paste0("MB",MB_P),
+  curated_cell_type2 == "Hindbrain - Subventricular Zone" ~ paste0("HB-SV",HB),
+  curated_cell_type2 == "Midbrain - Optic Tectum" ~ paste0("OT",MB_P),
+  curated_cell_type2 == "Diencephalon - Tuberculum" ~ paste0("DEL-T",DEL),
+  curated_cell_type2 == "Spinal Cord - Cholinergic Motor Neurons" ~ paste0("SC-CM",SC),
+  curated_cell_type2 == "Cranial Ganglia" ~ paste0("NC-C",NC),
+  curated_cell_type2 == "Spinal Cord - Radial Glia" ~ paste0("SC-GL",SC),
+  curated_cell_type2 == "Diencephalon - Hypothalamus" ~ paste0("DEL-H",DEL),
+  curated_cell_type2 == "Midbrain - Dorsal" ~ paste0("MB-D",MB_P),
+  curated_cell_type2 == "Spinal Cord - Medial Floorplate" ~ paste0("SC-FM",SC),
+  TRUE ~ "FIX"
+))
+
+
+
+```
+
+Now, we establish the expression of each target gene in each cell type to determine direct cellular expression. Data is then scaled between 0-1 for each gene
+```{r}
+micdrop_target_exp <- AverageExpression(micdrop, group.by = "curated_cell_type2", features = unique(combined.meta$class))
+
+micdrop_target_exp <- data.frame(micdrop_target_exp$RNA, check.names = FALSE) #convert to dataframe
+
+names(micdrop_target_exp) <- gsub("RNA.","",names(micdrop_target_exp)) #remove RNA prefix from column names
+
+range01 <- function(x){(x-min(x))/(max(x)-min(x))} #scaling function
+
+micdrop_target_scaled <- micdrop_target_exp %>% 
+  rownames_to_column(var = "perturbation") %>% 
+  pivot_longer(cols = -perturbation, names_to = "cell_type", values_to = "expression") %>% ##pivot to long format, row for each pert/ct combination
+  group_by(perturbation) %>%
+  mutate(scaled_expression = range01(expression)) #apply scaling function
+  
+micdrop_target_scaled ##now we have a dataframe with the scaled expression of each target gene (perturbation) in each cell type 
+```
+
+```{r}
+#Make a dataframe that has each cell type and it's lineage path stored in the LIN_ columns
+lin_df <- meta %>% 
+  distinct(curated_cell_type2, lineage_code) %>% 
+  mutate(lineage_code = ifelse(substr(lineage_code, 1, 1) == "_", str_replace(lineage_code, "^_", ""), lineage_code)) %>%
+  separate(lineage_code, into = c("LIN_1","LIN_2","lIN_3","LIN_4","LIN_5","LIN_6","LIN_7","LIN_8","LIN_9","LIN_10"), sep = "_")
+
+#initialize an empty dataframe
+lin_pert_df <- data.frame()
+
+#now iterate through each perturbation name in the dataset, creating row for each cell type and perturbation combination. 
+for(pert in unique(combined.meta$class)){
+  df_tmp <- lin_df
+  df_tmp$perturbation <- pert
+  lin_pert_df <- rbind(df_tmp, lin_pert_df)
+}
+
+#now remove ND and reorder dataframe, and remove residual row names
+lin_pert_df <- lin_pert_df %>% 
+  select(curated_cell_type2, perturbation, everything()) %>%
+  filter(perturbation != "ND")
+rownames(lin_pert_df) <- NULL
+
+lin_pert_df
+```
+
+Next, we create a a dataframe that takes each cell type / perturbation combination and shows the cell type in that lineage with the top expression (top_lineage) along with. the scaled expression value for that lineage (top_scaled_expression). This is for calculating whether there is a direct (lineage) effect
+```{r}
+
+lin_pert_df_long <- lin_pert_df %>% 
+  pivot_longer(cols = -c(curated_cell_type2,perturbation)) %>% 
+  select(-name) %>% 
+  filter(!is.na(value)) %>% 
+  dplyr::rename("lineage" = "value") %>% 
+  left_join(dcell_target_scaled, by = c("perturbation","lineage")) %>%
+  filter(!is.na(expression)) 
+
+
+#Now we filter the data so that only the top expressing lineage is represented. 
+lin_pert_df_long_top <- lin_pert_df_long %>%
+  group_by(curated_cell_type2, perturbation) %>%
+  slice_max(order_by = expression, n = 1) %>% 
+  dplyr::rename("top_lineage" = "lineage", "top_scaled_expression" = "scaled_expression", "top_expression" = "expression", "cell_type" = "curated_cell_type2") 
+
+lin_pert_df_long_top
+```
+
+
+
+```{r}
+DEG_results <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/DEG_results_5_9_24.rds")
+
+meta <- micdrop@meta.data
+
+DEG_results <- meta %>%  ##add column to DEG results with number of cells in each cluster
+  dplyr::count(curated_cell_type2) %>%
+  dplyr::rename("cell_type" = "curated_cell_type2", "cluster_ncell" = "n") %>%
+  right_join(DEG_results, by = "cell_type")
+
+DEG_results <- meta %>% ##add column to DEG results with the tissue type (cell_class) for each cluster
+  select(curated_cell_type2, cell_class) %>% 
+  distinct() %>% 
+  dplyr::rename("cell_type" = "curated_cell_type2") %>%
+  right_join(DEG_results, by = "cell_type")
+
+nDEG_df <- DEG_results %>%
+  mutate(perturbation = factor(perturbation)) %>%
+  filter(FDR < 0.05, ncell_perturbed > 10, cluster_ncell > 800, abs(logFC) > 0.5) %>%
+  dplyr::count(cell_type, perturbation, .drop = FALSE) %>%
+  dplyr::rename("nDEG" = "n") %>% 
+  left_join((select(DEG_results, cell_type, perturbation, cluster_ncell, ncell_perturbed) %>% distinct()), by = c("cell_type","perturbation"))
+
+ 
+
+```
+
+```{r}
+
+autonomy_df <- micdrop_target_scaled %>% 
+  dplyr::rename("celltype_scaled_expression" = "scaled_expression") %>%
+  left_join(lin_pert_df_long_top, by =c("cell_type","perturbation")) %>%
+  select(cell_type, perturbation, top_lineage, celltype_scaled_expression,top_scaled_expression ) %>%
+  ungroup() %>%
+  left_join(nDEG_df, by = c("cell_type","perturbation"))
+
+autonomy_df
+
+```
+
+
+```{r}
+# Load the ComplexHeatmap library
+library(ComplexHeatmap)
+
+# Define thresholds for lineage, cell, and DEG (Differentially Expressed Genes)
+lin_thresh = 0.1
+cell_thresh = 0.1
+deg_thresh = 10
+
+# Define the order of cell classes
+class_order <- c("Neural", "Mesoderm / Endoderm", "Non-neural Ectoderm")
+
+# Filter and process DEG results
+ct_stats <- DEG_results %>% 
+    filter(FDR < 0.05, abs(logFC) > 0.5, cluster_ncell > 800) %>%
+    mutate(
+        cell_type = factor(cell_type),
+        cell_class = factor(cell_class, levels = class_order)
+    ) %>%
+    distinct(cluster_ncell, cell_type, cell_class) %>%
+    group_by(cell_class) %>%
+    arrange(desc(cluster_ncell)) %>% 
+    arrange(cell_class)
+
+# Calculate the number of rows for each cell class
+neu_len <- ct_stats %>% 
+    filter(cell_class == "Neural") %>% 
+    nrow()
+
+meso_len <- ct_stats %>%
+    filter(cell_class == "Mesoderm / Endoderm") %>% 
+    nrow()
+
+ecto_len <- ct_stats %>%
+    filter(cell_class == "Non-neural Ectoderm") %>% 
+    nrow()
+
+# Extract the order of cell types
+ct_order <- ct_stats %>% 
+    pull(cell_type)
+
+# Process autonomy data
+autonomy_df_class <- autonomy_df %>%
+    dplyr::filter(!is.na(nDEG)) %>% 
+    mutate(autonomy = case_when(
+        nDEG >= deg_thresh & celltype_scaled_expression > cell_thresh ~ "cell autonomous", 
+        nDEG >= deg_thresh & celltype_scaled_expression < cell_thresh & top_scaled_expression > lin_thresh ~ "lineage autonomous", 
+        nDEG >= deg_thresh & celltype_scaled_expression < cell_thresh & top_scaled_expression < lin_thresh ~ "non autonomous",
+        nDEG < deg_thresh ~ "no effect",
+        TRUE ~ "other"
+    ))
+
+# Prepare data for heatmap
+autonomy_hm_df <- autonomy_df_class %>% 
+    select(cell_type, perturbation, autonomy) %>% 
+    mutate(autonomy_code = case_when(
+        autonomy == "no effect" ~ 0,
+        autonomy == "lineage autonomous" ~ 1,
+        autonomy == "cell autonomous" ~ 2,
+        autonomy == "non autonomous" ~ 3,
+        TRUE ~ 0
+    )) %>%
+    select(-autonomy) %>% 
+    pivot_wider(names_from = cell_type, values_from = autonomy_code) %>% 
+    column_to_rownames(var = "perturbation") %>%
+    select(ct_order) %>% 
+    t()
+
+# Define row annotations for the heatmap
+ha = rowAnnotation(
+    foo = anno_block(
+        gp = gpar(fill = c("#B2B8E0", "#FFCD82", "#85C989")), 
+        labels = c("Neural", "Mesoderm + Endoderm", "NNE + NC")
+    ), 
+    width = unit(.5, "cm")
+)
+
+# Define the split factor for row splitting in the heatmap
+split <- factor(
+    c(rep("Neural", neu_len), 
+      rep("Mesoderm / Endoderm", meso_len), 
+      rep("Non-neural Ectoderm", ecto_len)),
+    levels = c("Neural", "Mesoderm / Endoderm", "Non-neural Ectoderm")
+)
+
+# Create the heatmap
+hm <- Heatmap(
+    autonomy_hm_df, 
+    na_col = "darkgrey",  
+    col = c("white", "#ACC2CFFF", "#678096FF", "#F4E7C5FF"), 
+    column_names_rot = 45, 
+    border = "lightgrey", 
+    row_split = split, 
+    right_annotation = NULL, 
+    left_annotation = ha,
+    row_gap = unit(4, "mm"),
+    heatmap_legend_param = list(title = "Perturbation Type"), 
+    rect_gp = gpar(col = "lightgrey"),  
+    cluster_column_slices = FALSE, 
+    show_column_dend = FALSE,
+    cluster_rows = FALSE,
+    show_row_dend = FALSE,
+    row_dend_side = "right", 
+    row_names_side = "left", 
+    row_title = "                  ", 
+    row_title_rot = 45
+)
+
+# Save the heatmap as a PNG file
+png(
+    filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/Figure_4C.png", 
+    height = 10, 
+    width = 13, 
+    units = "in", 
+    res = 300
+)
+hm
+dev.off()
+```
+
+```{r}
+mk_volc <- function(result = DEG_results, pert, ct, pt = 0.05, lfc = 0.25, n_lab = 20 ){
+  
+  filt_result <- result %>%
+    filter(perturbation == pert, cell_type == ct) 
+
+  
+  ncells = unique(filt_result$ncell)
+  
+  vp <- EnhancedVolcano(filt_result,
+        title = paste0(ct), subtitle = paste0(pert," cells vs other cells"),
+        lab = filt_result$gene, x = "logFC", y = "FDR", labSize = 0, FCcutoff = 0.5, pCutoff = 0.05, legendPosition = "none", caption = NULL,  
+        col = c("grey","grey","grey","red"), cutoffLineCol = "grey",  xlab = bquote( ~ Log[2] ~ "fold change"), ylab = bquote(~"-" ~Log[10] ~ "q value"))+
+  theme_classic() +
+  NoLegend() +
+  theme(
+    axis.text.x = element_text(size = 12),  # Adjust axis text size
+    axis.text.y = element_text(size = 12),  # Adjust axis text size
+    axis.title = element_text(size = 12),  # Adjust axis label size
+    plot.title = element_text(size = 12),  # Adjust title size
+    legend.text = element_text(size = 12),  # Adjust legend label size
+    legend.title = element_blank()
+  ) 
+  
+  label_select <- filt_result %>% filter(FDR < pt, abs(logFC) > lfc) %>% top_n(wt = FDR, -n_lab)
+
+  vp + geom_text_repel(data = label_select, aes(x = logFC, y = -log10(FDR), label = gene), force = 50, nudge_x = 0, nudge_y = 0.1, max.overlaps = 40, box.padding = 0.5, size = 5) 
+}
+
+mk_volc(pert = "tp63", ct = "Hemangioblasts")
+mk_volc(pert = "tp63", ct = "Vasculature - Veins")
+mk_volc(pert = "tp63", ct = "Vasculature - Arteries")
+
+
+
+```
+
+```{r}
+DefaultAssay(micdrop) <- "RNA"
+expression <- AverageExpression(micdrop, assays = "RNA", features = unique(micdrop@meta.data$class), group.by = "curated_cell_type2")
+
+expression <- as.data.frame(t(expression$RNA)) %>%
+  rownames_to_column(var = "cell_type")
+
+
+mk_umap <- function(gene, thresh = 0.2){
+  
+  clust_exp <- expression %>% 
+    dplyr::select(cell_type, gene) %>% 
+    arrange(desc(gene)) 
+  
+  print(clust_exp)
+  
+  clust_lab <- clust_exp %>% filter(!!sym(gene) > thresh) %>% pull(cell_type)
+  
+  print(clust_lab)
+  
+  micdrop@meta.data <- micdrop@meta.data %>% mutate(cluster_lab = ifelse(curated_cell_type2 %in% clust_lab, curated_cell_type2, " "))
+  
+  Idents(micdrop) <- "cluster_lab"
+  
+  FeaturePlot_scCustom(micdrop, features = gene, label = TRUE, reduction = 'umap') + NoAxes()
+}
+
+mk_umap("tp63")
+```
+
+```{r}
+exp_thresh = 0.1
+nDEG_thresh = 10
+
+
+autonomy_df_class <- autonomy_df %>%
+  filter(!is.na(nDEG), cell_type %in% rownames(autonomy_hm_df)) %>%
+  mutate(autonomy = case_when(
+    nDEG >= nDEG_thresh & celltype_scaled_expression > exp_thresh ~ "Direct (cell)", 
+    nDEG >= nDEG_thresh & celltype_scaled_expression < exp_thresh & top_scaled_expression > exp_thresh ~ "Direct (lineage)", 
+    nDEG >= nDEG_thresh & celltype_scaled_expression < exp_thresh & top_scaled_expression < exp_thresh ~ "Indirect",
+    nDEG < nDEG_thresh ~ "no effect",
+    TRUE ~ "other"
+  ),
+    autonomy_possible = case_when(
+      celltype_scaled_expression > exp_thresh ~ "Cell-intrinsic",
+      celltype_scaled_expression < exp_thresh & top_scaled_expression > exp_thresh ~ "Lineage-intrinsic",
+      celltype_scaled_expression < exp_thresh & top_scaled_expression < exp_thresh ~ "Cell-extrinsic"
+    ),
+   effect_type = ifelse(nDEG > nDEG_thresh, "perturbed","unperturbed")
+  ) %>%  # Rename autonomy categories for clarity
+  mutate(autonomy = case_when(
+    autonomy == "Direct (cell)" ~ "Cell-intrinsic",
+    autonomy == "Direct (lineage)" ~ "Lineage-intrinsic",
+    autonomy == "Indirect" ~ "Cell-extrinsic",
+    TRUE ~ autonomy
+  )) %>%
+  mutate(autonomy = factor(autonomy, levels = c("Cell-intrinsic","Lineage-intrinsic","Cell-extrinsic")))
+
+
+
+
+
+
+```
+
+
+```{r}
+# Filter out rows where autonomy is "no effect", calculate counts and proportions
+autonomy_df_class %>% 
+  filter(autonomy != "no effect") %>% 
+  count(autonomy) %>% 
+  mutate(proportion = n / sum(n)) %>%
+  
+  # Create a stacked bar plot
+  ggplot(aes(x = "", y = proportion, fill = autonomy)) + 
+  geom_bar(stat = "identity", width = 0.7, color = "black") +  # Stacked bar
+  theme_classic() + 
+  labs(y = "Percent", x = "Autonomy Type", fill = "Autonomy Type") + 
+  coord_flip() +
+  
+  # Customize theme
+  theme(
+    axis.title.y = element_blank(),  # Remove y-axis title
+    axis.text.y = element_blank(),   # Remove y-axis text
+    axis.ticks.y = element_blank(),  # Remove y-axis ticks
+    axis.ticks.x = element_blank(),  # Hide x-axis ticks
+    axis.line.y = element_blank()    # Hide y-axis line
+  ) +
+  
+  # Add text labels to the bars
+  geom_text(aes(label = paste0(autonomy, "\n", n)), 
+            position = position_stack(vjust = 0.5), # Automatically centers the labels
+            size = 2.5, color = c("white", "white", "black")) + # Adjust label size and color for visibility 
+  
+  # Set bar colors based on 'pal'
+  scale_fill_manual(values = c("#F4E7C5FF","#ACC2CFFF","#678096FF")) +  
+  scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0))  +
+  
+  # Remove legend for fill aesthetic
+  guides(fill = "none")  
+
+# Save the plot as an SVG file
+ggsave(filename = "Figure_4D.svg", 
+       device = "svg",
+       width = 3,
+       height = 1,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
+```
+
+
+
+```{r}
+
+
+pct_perturbed <- autonomy_df_class %>% 
+  filter(cluster_ncell > 800) %>%
+  count(autonomy_possible, effect_type) %>% 
+  group_by(autonomy_possible) %>% 
+  mutate(total = sum(n)) %>% 
+  ungroup() %>%
+  mutate(pct = n/total) %>% 
+  filter(effect_type == "perturbed")
+
+pct_perturbed %>% 
+  mutate(autonomy_possible = factor(autonomy_possible, levels = c("Cell-extrinsic","Lineage-intrinsic","Cell-intrinsic"))) %>% 
+ggplot(aes(x = autonomy_possible, y = pct, fill = autonomy_possible)) + 
+  geom_bar(stat = 'identity', color = "black") +
+  scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0), limits = c(0,.25)) +  # Remove gap with expand
+  labs(y = "Perturbation Frequency", x = "Target expression") +
+  theme_classic() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_fill_manual(values = c("#F4E7C5FF","#ACC2CFFF","#678096FF")) +
+  guides(fill = "none")  # Remove legend for fill aesthetic
+
+
+
+ggsave(filename = "Figure_4E.eps", 
+             device = "eps",
+             width = 3,
+             height = 1.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+
+
+```
+
+
+```{r}
+
+autonomy_df_class %>%
+  mutate(autonomy_possible = factor(autonomy_possible, levels = c("Cell-extrinsic","Lineage-intrinsic","Cell-intrinsic"))) %>%
+  filter(cluster_ncell > 800) %>%
+  group_by(autonomy_possible) %>% 
+  summarize(meanNDEG = mean(nDEG)) %>%
+  ggplot(aes(x = autonomy_possible, y = meanNDEG, fill = autonomy_possible)) + 
+  geom_bar(stat = 'identity', color = "black") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 15)) +  # Remove gap with expand
+  labs(y = "mean DEG count", x = "Effect type") +
+  coord_flip() +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_fill_manual(values = c("#F4E7C5FF","#ACC2CFFF","#678096FF")) +
+  guides(fill = "none")  # Remove legend for fill aesthetic
+
+
+
+ggsave(filename = "Figre_4F.eps", 
+             device = "eps",
+             width = 3,
+             height = 1.5,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+autonomy_df_class
+
+```
+
+load vascular measurement data
+```{r}
+vasc_measure <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/tp63_vascular_measurements_2nd_somite.csv")
+
+ggplot(vasc_measure, aes(x = injection, y = CVP.width)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) +
+  labs(x = "Mutation", y = bquote(CVP ~ width ~ "(" * mu * "m)")) +
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "to63" = expression(italic("tp63")))) +
+  stat_compare_means(comparisons = list(c("scramble","tp63")), 
+                     method = "t.test", 
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
+  ylim(0,130)
+
+ggsave(filename = "Figure4H.svg", 
+             device = "svg",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+  
+```
+
+```{r}
+isv <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/isV_with_flow.csv")
+
+isv %>% 
+  pivot_longer(cols = everything()) %>% 
+  dplyr::rename( "injection" = "name"  , "flow" = "value"  ) %>% 
+  ggplot(aes(x = injection, y = flow)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) +
+  labs(x = "Mutation", y = "# ISV with flow") +
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "to63" = expression(italic("tp63")))) +
+  stat_compare_means(comparisons = list(c("scramble","tp63")), 
+                     method = "t.test", 
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
+  ylim(0,18)
+
+ggsave(filename = "Figure4I.svg", 
+             device = "svg",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+```{r}
+
+meta <- micdrop@meta.data
+
+##dataframe with cell counts for each replicate / cell type / mutant
+counts <- meta %>% 
+  group_by(class, group) %>% 
+  dplyr::count(curated_cell_type2) %>%
+  mutate(total_perturb = sum(n),
+         pct_cluster = n / total_perturb ) 
+
+
+counts %>% filter(curated_cell_type2 == "Vasculature - Veins") %>%
+  mutate(class = ifelse(class %in% c("tp63"), class, "other")) %>%
+  mutate(class = factor(class, levels = c("other","tp63"))) %>%
+  ggplot(aes(x=class, y = pct_cluster * 100)) +
+  geom_boxplot(fill = 'grey', outliers = FALSE, size = 0.2) + 
+  ylim(c(0,2)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust =1, size = 10),
+        axis.text.y = element_text(size = 10, family = "arial"),
+        axis.title.x = element_text(size = 10, family = "arial"),
+        axis.title.y = element_text(size = 10, family = "arial"),
+        axis.line = element_line(size = 0.2)) +
+  labs( y = "% cells in cluster", x = "Mutation") +
+  scale_x_discrete(labels = c("other" = "other", 
+                              "rx3" = expression(italic("tp63"))
+                              ))
+
+
+ggsave(filename = "FigureS11A.svg", 
+             device = "svg",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+```{r}
+
+mk_volc <- function(result = DEG_results, pert, ct, pt = 0.05, lfc = 0.25, n_lab = 20 ){
+  
+  filt_result <- result %>%
+    filter(perturbation == pert, cell_type == ct) 
+
+  
+  ncells = unique(filt_result$ncell)
+  
+  vp <- EnhancedVolcano(filt_result,
+        title = paste0(ct), subtitle = paste0(pert," cells vs other cells"),
+        lab = filt_result$gene, x = "logFC", y = "FDR", labSize = 0, FCcutoff = 0.5, pCutoff = 0.05, legendPosition = "none", caption = NULL,  
+        col = c("grey","grey","grey","red"), cutoffLineCol = "grey",  xlab = bquote( ~ Log[2] ~ "fold change"), ylab = bquote(~"-" ~Log[10] ~ "q value"))+
+  theme_classic() +
+  NoLegend() +
+  theme(
+    axis.text.x = element_text(size = 12),  # Adjust axis text size
+    axis.text.y = element_text(size = 12),  # Adjust axis text size
+    axis.title = element_text(size = 12),  # Adjust axis label size
+    plot.title = element_text(size = 12),  # Adjust title size
+    legend.text = element_text(size = 12),  # Adjust legend label size
+    legend.title = element_blank()
+  ) 
+  
+  label_select <- filt_result %>% filter(FDR < pt, abs(logFC) > lfc) %>% top_n(wt = FDR, -n_lab)
+
+  vp + geom_text_repel(data = label_select, aes(x = logFC, y = -log10(FDR), label = gene), force = 50, nudge_x = 0, nudge_y = 0.1, max.overlaps = 40, box.padding = 0.5, size = 5) 
+}
+
+
+mk_volc(pert = "tp63", ct = "Vasculature - Veins")
+
+ggsave(filename = "FigureS11B-1.png", 
+             device = "png",
+             width = 6, 
+             height = 6,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+mk_volc(pert = "tp63", ct = "Vasculature - Arteries")
+
+ggsave(filename = "FigureS11B-2.png", 
+             device = "png",
+             width = 6, 
+             height = 6,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+mk_volc(pert = "tp63", ct = "Hemangioblasts")
+
+ggsave(filename = "FigureS11B-3.png", 
+             device = "png",
+             width = 6, 
+             height = 6,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+```{r}
+expression <- AverageExpression(micdrop, assays = "RNA", features = unique(micdrop@meta.data$class), group.by = "curated_cell_type2")
+expression <- as.data.frame(t(expression$RNA))
+expression <- expression %>% rownames_to_column(var = "cell_type")
+
+mk_umap <- function(gene, thresh = 0.2){
+  
+  clust_exp <- expression %>% 
+    dplyr::select(cell_type, gene) %>% 
+    arrange(desc(gene)) 
+  
+  print(clust_exp)
+  
+  clust_lab <- clust_exp %>% filter(!!sym(gene) > thresh) %>% pull(cell_type)
+  
+  print(clust_lab)
+  
+  micdrop@meta.data <- micdrop@meta.data %>% mutate(cluster_lab = ifelse(curated_cell_type2 %in% clust_lab, curated_cell_type2, " "))
+  
+  Idents(micdrop) <- "cluster_lab"
+  
+  FeaturePlot_scCustom(micdrop, features = gene, label = TRUE, reduction = 'umap') + NoAxes()
+}
+
+mk_umap("tp63")
+
+ggsave(filename = "FigureS11C.png", 
+             device = "png",
+             width = 8, 
+             height = 8,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+```{r}
+vasc_measure <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/tp63_vascular_measurements_2nd_somite.csv")
+
+ggplot(vasc_measure, aes(x = injection, y = ISV.width)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) +
+  labs(x = "Mutation", y = bquote(ISV ~ width ~ "(" * mu * "m)")) +
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "to63" = expression(italic("tp63")))) +
+  stat_compare_means(comparisons = list(c("scramble","tp63")), 
+                     method = "t.test", 
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
+  ylim(0,150)
+
+ggsave(filename = "FigureS11D.svg", 
+             device = "svg",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+```{r}
+fa <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/flow_area.csv")
+fa %>% 
+  pivot_longer(cols = everything()) %>% 
+  dplyr::rename("injection" = "name" ,  "flow" = "value"  ) %>% 
+  ggplot(aes(x = injection, y = flow)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) +
+  labs(x = "Mutation", y = "Flow Area (pixels)") +
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "to63" = expression(italic("tp63")))) +
+  stat_compare_means(comparisons = list(c("scramble","tp63")), 
+                     method = "t.test", 
+                     method.args = "two.sided",
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.05, 0.0005, 1), symbols = c("*","**","ns"))) + 
+  ylim(0,12000)
+
+ggsave(filename = "FigureS11I.svg", 
+             device = "svg",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+```{r}
+
+bpm <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/bpm.csv")
+
+bpm %>% 
+  pivot_longer(cols = everything()) %>% 
+  dplyr::rename( "injection" = "name" ,  "flow" = "value" ) %>% 
+  ggplot(aes(x = injection, y = flow)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) +
+  labs(x = "Mutation", y = "BPM") +
+  scale_x_discrete(labels = c("scramble" = "scramble", 
+                              "to63" = expression(italic("tp63")))) +
+  stat_compare_means(comparisons = list(c("scramble","tp63")), 
+                     method = "t.test", 
+                     method.args = "two.sided",
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.05, 0.0005, 1), symbols = c("*","**","ns"))) + 
+  ylim(0,110)
+
+ggsave(filename = "FigureS11H.svg", 
+             device = "svg",
+             width = 1.5, 
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+
+```
+
