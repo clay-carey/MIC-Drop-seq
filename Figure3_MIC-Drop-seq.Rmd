@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup}
 
-knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 3/")
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
 
 ```
 
@@ -23,7 +23,7 @@ library(ggpubr)
 ```
 
 ```{r}
-micdrop <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/micdrop_4_19_24.rds")
+micdrop <- readRDS(file = "input_data/micdrop_2-6-25.rds")
 ```
 
 ```{r}
@@ -63,7 +63,7 @@ p1 <- DotPlot_scCustom(micdrop, idents = som_ct, features = meox_genes , scale =
 p1
 
 
-ggsave(filename = "Figure3A.svg", 
+ggsave(filename = "outputs_fig3/Figure3A.svg", 
              device = "svg",
              width = 3, 
              height = 3,
@@ -118,7 +118,7 @@ p4 <- p2 + sc  +
 
 p3 + NoLegend() + ggtitle("")
 
-ggsave(filename = "Figure3B.png", 
+ggsave(filename = "outputs_fig3/Figure3B.png", 
              device = "png",
              width = 3, 
              height = 3,
@@ -128,7 +128,7 @@ ggsave(filename = "Figure3B.png",
 
 p4 + NoLegend() + ggtitle("")
 
-ggsave(filename = "Figure3B-2.png", 
+ggsave(filename = "outputs_fig3/Figure3B-2.png", 
              device = "png",
              width = 3, 
              height = 3,
@@ -149,7 +149,7 @@ p1 + sc  +
         legend.direction = "horizontal"  # Legend items in a horizontal li
   ) 
 
-ggsave(filename = "Figure3F.svg", 
+ggsave(filename = "outputs_fig3/Figure3F.svg", 
              device = "svg",
              width = 3, 
              height = 4,
@@ -159,6 +159,7 @@ ggsave(filename = "Figure3F.svg",
 ```
 
 ```{r}
+
 p1 <- FeaturePlot(micdrop, features = "dlx1a", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
 
 p1 + sc  + 
@@ -167,13 +168,14 @@ p1 + sc  +
         legend.direction = "horizontal"  # Legend items in a horizontal li
   ) 
 
-ggsave(filename = "Figure3J.svg", 
+ggsave(filename = "outputs_fig3/Figure3J.svg", 
              device = "svg",
              width = 3, 
              height = 4,
              units = 'in',
              dpi = "retina",
              bg = "transparent")
+
 ```
 
 
@@ -207,7 +209,7 @@ counts %>% filter(curated_cell_type2 == "Midbrain - Optic Tectum") %>%
                               "neurod1" = expression(italic("neurod1")),
                               "nkx2.7" = expression(italic("nkx2.7"))))
 
-ggsave(filename = "Figure3E.eps", 
+ggsave(filename = "outputs_fig3/Figure3E.eps", 
              device = "eps",
              width = 1.75, 
              height = 2.5,
@@ -246,7 +248,7 @@ counts %>% filter(curated_cell_type2 == "Diencephalon - Hypothalamus") %>%
                               "rx3" = expression(italic("rx3"))
                               ))
 
-ggsave(filename = "Figure3I.eps", 
+ggsave(filename = "outputs_fig3/Figure3I.eps", 
              device = "eps",
              width = 1.5, 
              height = 2.5,
@@ -254,10 +256,11 @@ ggsave(filename = "Figure3I.eps",
              dpi = "retina",
              bg = "transparent")
 ```
+
 ```{r}
-input <- read.csv(file = '/Users/claytoncarey/Downloads/gata_measurements.csv')
+input <- read.csv(file = 'input_data/gata_measurements.csv')
 gata <- input %>% filter(probe == "gata")
-dlx <- input %>% filter(probe == "dlx")
+
 ```
 
 ```{r}
@@ -267,15 +270,10 @@ gata <- gata %>%
          area.head.norm = stain.area * norm.head,
          area.yolk.norm = stain.area * norm.yolk)
 
-dlx <- dlx %>% 
-  mutate(norm.head = (mean(head.width) / head.width),
-         norm.yolk = (mean(yolk.width) / yolk.width),
-         area.head.norm = stain.area * norm.head,
-         area.yolk.norm = stain.area * norm.yolk)
 
 
 gata
-dlx
+
 ```
 
 ```{r}
@@ -305,7 +303,7 @@ ggplot(gata, aes(x = genotype, y = area.head.norm)) +
   ylim(0,13000)
   
 
-ggsave(filename = "Figure3H.eps", 
+ggsave(filename = "outputs_fig3/Figure3H.eps", 
              device = "eps",
              width = 2, 
              height = 3,
@@ -315,35 +313,10 @@ ggsave(filename = "Figure3H.eps",
 ```
 
 
+
+
 ```{r}
-dlx <- dlx %>% mutate(genotype = factor(genotype, levels = c("scramble", "sox11b", "rx3")))
-
-ggplot(dlx, aes(x = genotype, y = area.head.norm)) +
-  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
-  geom_jitter(width = 0.1, size = .2, color = "black") + 
-  theme_classic() +
-  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
-        axis.text.y = element_text(size = 10), 
-        axis.title.x = element_text(size = 10), 
-        axis.title.y = element_text(size = 10),
-        axis.line = element_line(size = 0.2)) + 
-  labs(x = "Mutation", y = "Normalized Stain Area")+
-  scale_x_discrete(labels = c("scramble" = "scramble", 
-                              "sox11b" = expression(italic("sox11b")),
-                              "rx3" = expression(italic("rx3"))))
-
-
-ggsave(filename = "Figure3L.eps", 
-             device = "eps",
-             width = 1.25, 
-             height = 2.5,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")                      
-
-```
-```{r}
-dlx <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 3/dlx_measurements.csv")
+dlx <- read.csv(file = "input_data/dlx_measurements.csv")
 dlx
 compare <- list(c("scramble","sox11b"), c("scramble","rx3"))
 
@@ -373,7 +346,7 @@ ggplot(dlx, aes(x = injection, y = area.normalized)) +
   ylim(0,15000)
 
 
-ggsave(filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 3/Figure3L.eps", 
+ggsave(filename = "outputs_fig3/Figure3L.eps", 
              device = "eps",
              width = 1.5, 
              height = 3,
@@ -404,7 +377,7 @@ VlnPlot(micdrop, features = 'gata2a',
                               "neurod1" = expression(italic(neurod1)),
                               "nkx2.7" = expression(italic(nkx2.7))))
 
-ggsave(filename = "FigureS3.1.eps", 
+ggsave(filename = "outputs_fig3/FigureS3.1.eps", 
              device = "eps",
              width = 3, 
              height = 3,
@@ -412,6 +385,7 @@ ggsave(filename = "FigureS3.1.eps",
              dpi = "retina",
              bg = "transparent")       
 ```
+2
 ```{r}
 
 micdrop@meta.data <- micdrop@meta.data %>%
@@ -430,7 +404,7 @@ VlnPlot(micdrop, features = 'dlx1a',
                               "rx3" = expression(italic(rx3))
                               ))
 
-ggsave(filename = "FigureS3.1B.eps", 
+ggsave(filename = "outputs_fig3/FigureS3.1B.eps", 
              device = "eps",
              width = 3, 
              height = 3,

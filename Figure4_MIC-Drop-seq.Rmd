@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup}
 
-knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/")
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
 
 ```
 
@@ -33,11 +33,11 @@ Import file dcell_lineage, which has each cell type in the daniocell dataset and
 Import daniocell data (dcell)
 Import micdrop metadata, which includes a curated lineage sequence for each cell type
 ```{r}
-dcell_lineage <- read_csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/DEG_V3/dcell_lineage_codes.csv")
+dcell_lineage <- read_csv(file = "input_data/dcell_lineage_codes.csv")
 
-dcell <- readRDS(file = "/Users/claytoncarey/Desktop/dcell_3_24.rds")
+dcell <- readRDS(file = "input_data/dcell_3_24.rds")
 
-combined.meta <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/DEG_V3/lineagemeta.rds")
+combined.meta <- readRDS(file = "input_data/lineagemeta.rds")
 
 head(dcell_lineage)
 
@@ -91,9 +91,9 @@ dcell_target_scaled
 Load in color palette and coordinates for igraph plotting
 ```{r}
 ##load precomputed coordinates for igraph network plot
-coords <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/Autonomy_igraph/coords_layout.rds")
+coords <- readRDS(file = "input_data/coords_layout.rds")
 #load curated groupings and color palettes for igraph 
-community_colors <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/autonomyscratch/community_colors.csv", header = TRUE)
+community_colors <- read.csv(file = "input_data/community_colors.csv", header = TRUE)
 #add transparency value
 community_colors <- community_colors %>% mutate(color_trans = paste0(color,30))
 ```
@@ -103,10 +103,10 @@ Now we define a function to plot the lineage network with the colors highlightin
 
 plot_with_path <- function(gene, celltype){
   
-  links <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/Autonomy_igraph/links_full.csv", header = TRUE)
+  links <- read.csv(file = "input_data/links_full.csv", header = TRUE)
 
 
-  nodes <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Label_Transfer/pseudobulk_analysis/Autonomy_igraph/nodes_full2.csv")
+  nodes <- read.csv(file = "input_data/nodes_full2.csv")
 
 
   tmp_net <- graph_from_data_frame(d=links, vertices=nodes, directed=T)
@@ -169,7 +169,7 @@ plot_with_path(gene = "tbxta", celltype = "Blastula")
 
 Now we load the micdrop-seq dataset and append a lineaege path to each cell type manually. This is neccessary to establish when the target genes are expressed in precursor cells in the defined lineage trajectory. 
 ```{r}
-micdrop <- readRDS(file = '/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/micdrop_4_19_24.rds')
+micdrop <- readRDS(file = 'input_data/micdrop_2-6-25.rds')
 micdrop@meta.data <- micdrop@meta.data %>% select(-starts_with("prediction"))
 
 meta <- micdrop@meta.data
@@ -501,7 +501,7 @@ hm <- Heatmap(
 
 # Save the heatmap as a PNG file
 png(
-    filename = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/Figure_4C.png", 
+    filename = "outputs_fig4/Figure_4C.png", 
     height = 10, 
     width = 13, 
     units = "in", 
@@ -619,17 +619,13 @@ autonomy_df_class <- autonomy_df %>%
 # Filter out rows where autonomy is "no effect", calculate counts and proportions
 autonomy_df_class %>% 
   filter(autonomy != "no effect") %>% 
-  count(autonomy) %>% 
+  dplyr::count(autonomy) %>% 
   mutate(proportion = n / sum(n)) %>%
-  
-  # Create a stacked bar plot
   ggplot(aes(x = "", y = proportion, fill = autonomy)) + 
   geom_bar(stat = "identity", width = 0.7, color = "black") +  # Stacked bar
   theme_classic() + 
   labs(y = "Percent", x = "Autonomy Type", fill = "Autonomy Type") + 
   coord_flip() +
-  
-  # Customize theme
   theme(
     axis.title.y = element_blank(),  # Remove y-axis title
     axis.text.y = element_blank(),   # Remove y-axis text
@@ -637,21 +633,18 @@ autonomy_df_class %>%
     axis.ticks.x = element_blank(),  # Hide x-axis ticks
     axis.line.y = element_blank()    # Hide y-axis line
   ) +
-  
   # Add text labels to the bars
   geom_text(aes(label = paste0(autonomy, "\n", n)), 
             position = position_stack(vjust = 0.5), # Automatically centers the labels
             size = 2.5, color = c("white", "white", "black")) + # Adjust label size and color for visibility 
-  
   # Set bar colors based on 'pal'
   scale_fill_manual(values = c("#F4E7C5FF","#ACC2CFFF","#678096FF")) +  
   scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0))  +
-  
   # Remove legend for fill aesthetic
   guides(fill = "none")  
 
 # Save the plot as an SVG file
-ggsave(filename = "Figure_4D.svg", 
+ggsave(filename = "outputs_fig4/Figure_4D.svg", 
        device = "svg",
        width = 3,
        height = 1,
@@ -667,7 +660,7 @@ ggsave(filename = "Figure_4D.svg",
 
 pct_perturbed <- autonomy_df_class %>% 
   filter(cluster_ncell > 800) %>%
-  count(autonomy_possible, effect_type) %>% 
+  dplyr::count(autonomy_possible, effect_type) %>% 
   group_by(autonomy_possible) %>% 
   mutate(total = sum(n)) %>% 
   ungroup() %>%
@@ -689,7 +682,7 @@ ggplot(aes(x = autonomy_possible, y = pct, fill = autonomy_possible)) +
 
 
 
-ggsave(filename = "Figure_4E.eps", 
+ggsave(filename = "outputs_fig4/Figure_4E.eps", 
              device = "eps",
              width = 3,
              height = 1.5,
@@ -722,7 +715,7 @@ autonomy_df_class %>%
 
 
 
-ggsave(filename = "Figre_4F.eps", 
+ggsave(filename = "outputs_fig4/Figre_4F.eps", 
              device = "eps",
              width = 3,
              height = 1.5,
@@ -736,7 +729,7 @@ autonomy_df_class
 
 load vascular measurement data
 ```{r}
-vasc_measure <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/tp63_vascular_measurements_2nd_somite.csv")
+vasc_measure <- read.csv(file = "input_data/tp63_vascular_measurements_2nd_somite.csv")
 
 ggplot(vasc_measure, aes(x = injection, y = CVP.width)) +
   geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
@@ -756,7 +749,7 @@ ggplot(vasc_measure, aes(x = injection, y = CVP.width)) +
                      symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
   ylim(0,130)
 
-ggsave(filename = "Figure4H.svg", 
+ggsave(filename = "outputs_fig4/Figure4H.svg", 
              device = "svg",
              width = 1.5, 
              height = 3,
@@ -767,7 +760,7 @@ ggsave(filename = "Figure4H.svg",
 ```
 
 ```{r}
-isv <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/isV_with_flow.csv")
+isv <- read.csv(file = "input_data/isV_with_flow.csv")
 
 isv %>% 
   pivot_longer(cols = everything()) %>% 
@@ -790,7 +783,7 @@ isv %>%
                      symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
   ylim(0,18)
 
-ggsave(filename = "Figure4I.svg", 
+ggsave(filename = "outputs_fig4/Figure4I.svg", 
              device = "svg",
              width = 1.5, 
              height = 3,
@@ -798,6 +791,7 @@ ggsave(filename = "Figure4I.svg",
              dpi = "retina",
              bg = "transparent")
 ```
+
 ```{r}
 
 meta <- micdrop@meta.data
@@ -828,7 +822,7 @@ counts %>% filter(curated_cell_type2 == "Vasculature - Veins") %>%
                               ))
 
 
-ggsave(filename = "FigureS11A.svg", 
+ggsave(filename = "outputs_fig4/FigureS11A.svg", 
              device = "svg",
              width = 1.5, 
              height = 3,
@@ -836,6 +830,7 @@ ggsave(filename = "FigureS11A.svg",
              dpi = "retina",
              bg = "transparent")
 ```
+
 ```{r}
 
 mk_volc <- function(result = DEG_results, pert, ct, pt = 0.05, lfc = 0.25, n_lab = 20 ){
@@ -869,7 +864,7 @@ mk_volc <- function(result = DEG_results, pert, ct, pt = 0.05, lfc = 0.25, n_lab
 
 mk_volc(pert = "tp63", ct = "Vasculature - Veins")
 
-ggsave(filename = "FigureS11B-1.png", 
+ggsave(filename = "outputs_fig4/FigureS11B-1.png", 
              device = "png",
              width = 6, 
              height = 6,
@@ -879,7 +874,7 @@ ggsave(filename = "FigureS11B-1.png",
 
 mk_volc(pert = "tp63", ct = "Vasculature - Arteries")
 
-ggsave(filename = "FigureS11B-2.png", 
+ggsave(filename = "outputs_fig4/FigureS11B-2.png", 
              device = "png",
              width = 6, 
              height = 6,
@@ -889,7 +884,7 @@ ggsave(filename = "FigureS11B-2.png",
 
 mk_volc(pert = "tp63", ct = "Hemangioblasts")
 
-ggsave(filename = "FigureS11B-3.png", 
+ggsave(filename = "outputs_fig4/FigureS11B-3.png", 
              device = "png",
              width = 6, 
              height = 6,
@@ -924,7 +919,7 @@ mk_umap <- function(gene, thresh = 0.2){
 
 mk_umap("tp63")
 
-ggsave(filename = "FigureS11C.png", 
+ggsave(filename = "outputs_fig4/FigureS11C.png", 
              device = "png",
              width = 8, 
              height = 8,
@@ -934,7 +929,7 @@ ggsave(filename = "FigureS11C.png",
 ```
 
 ```{r}
-vasc_measure <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/tp63_vascular_measurements_2nd_somite.csv")
+vasc_measure <- read.csv(file = "input_data/tp63_vascular_measurements_2nd_somite.csv")
 
 ggplot(vasc_measure, aes(x = injection, y = ISV.width)) +
   geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
@@ -954,7 +949,7 @@ ggplot(vasc_measure, aes(x = injection, y = ISV.width)) +
                      symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
   ylim(0,150)
 
-ggsave(filename = "FigureS11D.svg", 
+ggsave(filename = "outputs_fig4/FigureS11D.svg", 
              device = "svg",
              width = 1.5, 
              height = 3,
@@ -964,7 +959,7 @@ ggsave(filename = "FigureS11D.svg",
 ```
 
 ```{r}
-fa <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/flow_area.csv")
+fa <- read.csv(file = "input_data/flow_area.csv")
 fa %>% 
   pivot_longer(cols = everything()) %>% 
   dplyr::rename("injection" = "name" ,  "flow" = "value"  ) %>% 
@@ -987,7 +982,7 @@ fa %>%
                      symnum.args = list(cutpoints = c(0, 0.05, 0.0005, 1), symbols = c("*","**","ns"))) + 
   ylim(0,12000)
 
-ggsave(filename = "FigureS11I.svg", 
+ggsave(filename = "outputs_fig4/FigureS11I.svg", 
              device = "svg",
              width = 1.5, 
              height = 3,
@@ -998,7 +993,7 @@ ggsave(filename = "FigureS11I.svg",
 
 ```{r}
 
-bpm <- read.csv(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Figure 4/bpm.csv")
+bpm <- read.csv(file = "input_data/bpm.csv")
 
 bpm %>% 
   pivot_longer(cols = everything()) %>% 
@@ -1022,7 +1017,7 @@ bpm %>%
                      symnum.args = list(cutpoints = c(0, 0.05, 0.0005, 1), symbols = c("*","**","ns"))) + 
   ylim(0,110)
 
-ggsave(filename = "FigureS11H.svg", 
+ggsave(filename = "outputs_fig4/FigureS11H.svg", 
              device = "svg",
              width = 1.5, 
              height = 3,
