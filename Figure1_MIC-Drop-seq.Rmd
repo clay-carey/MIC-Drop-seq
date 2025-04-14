@@ -5,10 +5,10 @@ date: "2024-05-08"
 output: html_document
 ---
 
-Specify root directory of supporting data
+Specify root directory of supporting data and code
 ```{r setup}
 
-knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/Figure1")
+knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
 
 ```
 
@@ -39,11 +39,11 @@ library(viridis)
 
 Import the cellranger CRISPR analysis output "protospacer calls per cell", which shows the type of gRNA detected and number of UMIs associated with each cell. experimental configuration file shows each guide, target gene, and sequence
 ```{r}
-pilot_CRISPR_data <- read.csv(file = "inputs/protospacer_calls_per_cell.csv")
+pilot_CRISPR_data <- read.csv(file = "input_data/protospacer_calls_per_cell.csv")
 pilot_CRISPR_data
 
 
-exp_config <- read.csv(file = "inputs/feature_reference.csv")
+exp_config <- read.csv(file = "input_data/feature_reference.csv")
 exp_config
 
 ```
@@ -171,7 +171,7 @@ CRdata_classified
 
 Import 10x data, which is split into 2 assays. Create CRISPR assay object from gRNA count matrix
 ```{r}
-tenx_data <- Read10X(data.dir = "inputs/micdrop_overload_matrix")
+tenx_data <- Read10X(data.dir = "input_data/micdrop_overload_matrix")
 tenx_data.gex <- tenx_data$`Gene Expression`
 tenx_data.crispr <- tenx_data$`CRISPR Guide Capture`
 mdp <- CreateSeuratObject(counts = tenx_data.gex , min.cells = 3)
@@ -228,7 +228,7 @@ ggplot(aes(x = nCount_CRISPR)) +
   xlab("gRNA UMIs") +
   ylab("Cell Count")
 
-ggsave(filename = "outputs/Figure_1B.eps", 
+ggsave(filename = "outputs_fig1/Figure_1B.eps", 
              device = cairo_ps,
              width = 2, 
              height = 2,
@@ -266,7 +266,7 @@ mdp_meta %>%
     legend.title = element_blank()
   ) 
 
-ggsave(filename = "outputs/Figure_1C.eps", 
+ggsave(filename = "outputs_fig1/Figure_1C.eps", 
              device = cairo_ps,
              width = 1.5, 
              height = 2,
@@ -323,7 +323,7 @@ ggplot(dub_info, aes(x = scDblFinder.weighted, fill = type)) +
     legend.text = element_text(size = 12, family = "Arial", color = "black")
   ) 
 
-ggsave(filename = "outputs/Figure_S2A.png", 
+ggsave(filename = "outputs_fig1/Figure_S2A.png", 
              device = "png",
              width = 4, 
              height = 3,
@@ -367,7 +367,7 @@ ggplot(class_freq, aes(x = type, fill = scDblFinder.class, y = pct)) +
   labs(fill = "")
 
 
-ggsave(filename = "outputs/Figure_S2B.png", 
+ggsave(filename = "outputs_fig1/Figure_S2B.png", 
              device = "png",
              width = 3.5, 
              height = 3,
@@ -380,7 +380,7 @@ ggsave(filename = "outputs/Figure_S2B.png",
 ```{r}
 
 # read rhampseq report
-rhamp <- read.csv(file ="inputs/rhamp_results.csv") 
+rhamp <- read.csv(file ="input_data/rhamp_results.csv") 
 
 # make new class column based on the "target" column in results, this will allow merging with the cell pct data
 rhamp <- mutate(rhamp, class = case_when(
@@ -451,7 +451,7 @@ ggplot(rhamp_normalized) +
   ) +
   guides(color = guide_legend(title = "", ncol = 1))
 
-ggsave(filename = "outputs/Figure_1E.png", 
+ggsave(filename = "outputs_fig1/Figure_1E.png", 
              device = "png",
              width = 2.5, 
              height = 3,
@@ -483,7 +483,7 @@ Now we label cell types using reference based label transfer
 ```{r}
 
 ## load the daniocell seurat object, which includes cells collected at timepoints 21-26hpf
-dcell_ref <- readRDS(file = "inputs/dcell_21_26.rds")
+dcell_ref <- readRDS(file = "input_data/dcell_21_26.rds")
 
 ## we RE-run PCA and UMAP to make sure PCA space is calculated based only on newly subsetted cells.
 
@@ -520,7 +520,7 @@ p1 <- DimPlot(dcell_ref, group.by = "tissue", label = FALSE, reduction = 'umap')
 LabelClusters(p1, id = "tissue", repel = TRUE) + NoLegend() + NoAxes() + ggtitle("Daniocell reference tissue types") + theme(plot.title = element_text(size = 12))
 
 
-ggsave(filename = "outputs/Figure_S4A.png", 
+ggsave(filename = "outputs_fig1/Figure_S4A.png", 
              device = "png",
              width = 4, 
              height = 4,
@@ -536,7 +536,7 @@ p1 <- DimPlot(mdp_filt, group.by = "tissue", label = FALSE, reduction = 'ref.uma
 
 p1
 
-ggsave(filename = "outputs/Figure_S3B.png", 
+ggsave(filename = "outputs_fig1/Figure_S3B.png", 
              device = "png",
              width = 4, 
              height = 4,
@@ -577,7 +577,7 @@ p1 <- DimPlot(mdp_filt, group.by = "consensus_tissue", label = FALSE)
 LabelClusters(p1, id = "consensus_tissue", repel = TRUE, size = 4) + NoLegend() + NoAxes() + ggtitle("MIC-Drop-seq transfered tissue labels") +
   theme(plot.title = element_text(size = 12)) 
 
-ggsave(filename = "outputs/Figure_S3C.png", 
+ggsave(filename = "outputs_fig1/Figure_S3C.png", 
              device = "png",
              width = 4, 
              height = 4,
@@ -597,7 +597,7 @@ p1 <- DimPlot(mdp_filt, cols = palette, group.by = 'seurat_clusters') + NoLegend
 LabelClusters(p1, id = "seurat_clusters", bg.color = "white")
 
 
-ggsave(filename = "outputs/Figure_1D.png", 
+ggsave(filename = "outputs_fig1/Figure_1D.png", 
              device = "png",
              width = 5, 
              height = 5,
@@ -685,7 +685,7 @@ tableS2 <- clust_table %>%
 tableS2
 
 
-gtsave(tableS2, filename  = "outputs/tableS2.html")
+gtsave(tableS2, filename  = "outputs_fig1/tableS2.html")
 ```
 
 
@@ -736,7 +736,7 @@ ggplot(data = eyestats, aes(x = Var2, y = pct)) +
     legend.text = element_text(size = 12, family = "Arial", color = "black")
   ) 
 
-ggsave(filename = "outputs/Figure_1I.png", 
+ggsave(filename = "outputs_fig1/Figure_1I.png", 
              device = "png",
              width = 3, 
              height = 2,
@@ -779,7 +779,7 @@ ggplot(data = psmstats, aes(x = Var2, y = pct)) +
     legend.text = element_text(size = 12, family = "Arial", color = "black")
   ) 
 
-ggsave(filename = "outputs/Figure_1G.png", 
+ggsave(filename = "outputs_fig1/Figure_1G.png", 
              device = "png",
              width = 3, 
              height = 2,
@@ -799,7 +799,7 @@ PSM@meta.data <- mutate(PSM@meta.data, psmplot = case_when(class == "tbx16"  ~ "
 
 dittoDimPlot(PSM, "psmplot",split.by = "psmplot", color.panel  = c("#000000","black","black","black"),size =0.5,split.nrow = 1) + NoAxes() + NoLegend() + coord_cartesian(xlim = c(-14,-9), ylim = c(-1,2.5)) + theme(strip.text = element_text(size = 12, face = "italic"), strip.background = element_rect(fill = "white")) + ggtitle("")
 
-ggsave(filename = "outputs/Figre_1F.png", 
+ggsave(filename = "outputs_fig1/Figre_1F.png", 
              device = "png",
              width = 8,
              height = 1.5,
@@ -818,7 +818,7 @@ optic@meta.data <- mutate(optic@meta.data, opticplot = case_when(class == "rx3" 
 
 dittoDimPlot(optic, "opticplot", split.by = "opticplot", color.panel  = c("#000000","black","black","black"),size =0.5,split.nrow = 1) + NoAxes() + NoLegend() + coord_cartesian(xlim = c(2,11), ylim = c(-7,-2)) + theme(strip.text = element_text(size = 12, face = "italic"), strip.background = element_rect(fill = "white")) + ggtitle("")
 
-ggsave(filename = "outputs/Figure_1H.png", 
+ggsave(filename = "outputs_fig1/Figure_1H.png", 
              device = "png",
              width = 6,
              height = 1.5,
@@ -848,7 +848,7 @@ dittoDimPlot(sc,
   theme(strip.text = element_text(size = 12, face = c("italic", "plain")), strip.background = element_rect(fill = "white")) + 
   ggtitle("")
 
-ggsave(filename = "outputs/Figre_1H.svg", 
+ggsave(filename = "outputs_fig1/Figre_1H.svg", 
              device = "svg",
              width = 3,
              height = 1.5,
@@ -876,7 +876,7 @@ VlnPlot(mdp_filt,
 
 
   
-ggsave(filename = "outputs/Figre_1I.png", 
+ggsave(filename = "outputs_fig1/Figre_1I.png", 
              device = "png",
              width = 3,
              height = 2.5,
@@ -906,7 +906,7 @@ mdp_filt@meta.data %>%
     axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = c(rep("italic",8),'plain'))
   ) 
 
-ggsave(filename = "outputs/Figure_S3A.png", 
+ggsave(filename = "outputs_fig1/Figure_S3A.png", 
              device = "png",
              width = 4,
              height = 3,
@@ -921,7 +921,7 @@ dittoDimPlot(mdp_filt, "class", split.by = "class") + NoLegend() + NoAxes() +
   theme(strip.text = element_text(size = 12, face = c(rep("italic",8),"plain"), family = "Arial")) +
   ggtitle("")
 
-ggsave(filename = "outputs/Figure_S3B.png", 
+ggsave(filename = "outputs_fig1/Figure_S3B.png", 
              device = "png",
              width = 6,
              height = 6,
