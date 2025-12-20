@@ -1,208 +1,239 @@
 ---
-title: "figure_3_new_scratch"
+title: "Figure 3: MIC-Drop-seq Analysis - meox1 Phenotype Validation"
 author: "Clay Carey"
 date: "2024-09-23"
 output: html_document
 ---
 
 ```{r setup}
-
+# Set working directory for analysis
 knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
-
 ```
 
-```{r}
+## Load Required Libraries
+```{r load-libraries, message=FALSE, warning=FALSE}
+# Data manipulation and visualization
 library(Seurat)
 library(dplyr)
 library(ggplot2)
+library(tidyverse)
+
+# Single-cell specific
 library(scCustomize)
+
+# Visualization
 library(viridis)
 library(cowplot)
 library(ggpubr)
 
+# Statistics
+library(rstatix)
+library(DescTools)
 ```
 
-```{r}
+## Load Data
+```{r load-data}
+# Load processed MIC-Drop-seq Seurat object
 micdrop <- readRDS(file = "input_data/micdrop_2-6-25.rds")
 ```
 
-```{r}
-DimPlot(micdrop)
-```
+# ============================================================================
+# SECTION 1: DOTPLOT - meox1 TARGET GENE EXPRESSION IN SOMITIC MESODERM
+# ============================================================================
 
-```{r}
+```{r figure3A-dotplot}
+# Set default assay and identities
 DefaultAssay(micdrop) <- "RNA"
 Idents(micdrop) <- "curated_cell_type2"
 
-##define cell types that make up somitic mesoderm
+# Define somitic mesoderm cell types of interest
 som_ct <- c("Sclerotome", 
             "Sclerotome - Chondrogenic", 
             "Myotome") 
 
-meox_genes <- c("tcf15","cthrc1a","nid1a","vwde","thbs4b","cilp","comp")
+# Define meox1 target genes to visualize
+meox_genes <- c("tcf15", "cthrc1a", "nid1a", "vwde", 
+                "thbs4b", "cilp", "comp")
 
-
+# Create binary classification: meox1 mutants vs all others
 micdrop@meta.data <- micdrop@meta.data %>%
   mutate(meox = ifelse(class == "meox1", "meox1", "other"))
 
-p1 <- DotPlot_scCustom(micdrop, idents = som_ct, features = meox_genes , scale = FALSE, group.by = 'meox', flip_axes = TRUE) +
-  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
-  scale_colour_viridis(option="magma", direction = -1) +
-  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white"))) + 
+# Generate dotplot
+p1 <- DotPlot_scCustom(micdrop, 
+                       idents = som_ct, 
+                       features = meox_genes, 
+                       scale = FALSE, 
+                       group.by = 'meox', 
+                       flip_axes = TRUE) +
+  # Add black borders to points
+  geom_point(aes(size = pct.exp), shape = 21, colour = "black", stroke = 0.5) +
+  # Apply magma color scheme
+  scale_colour_viridis(option = "magma", direction = -1) +
+  # Customize legend
+  guides(size = guide_legend(override.aes = list(shape = 21, 
+                                                   colour = "black", 
+                                                   fill = "white"))) + 
+  # Format y-axis labels with italic for meox1
   scale_y_discrete(labels = c(expression(italic(meox1), "other"))) +
-  theme(axis.text.x = element_text(angle =45, hjust = 1, size = 10, family = "Arial"),
-    axis.text.y = element_text(size = 10, family = "Arial", face = "italic"),                        
-    legend.title = element_text(size = 10, family = "Arial"),                       
-    legend.text = element_text(size = 10, family = "Arial"),                        
-    axis.title = element_text(size = 10, family = "Arial")
-   ) + 
-  labs(color = "hello") +
+  # Theme customization
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10, 
+                                    family = "Arial"),
+        axis.text.y = element_text(size = 10, family = "Arial", 
+                                    face = "italic"),                        
+        legend.title = element_text(size = 10, family = "Arial"),                       
+        legend.text = element_text(size = 10, family = "Arial"),                        
+        axis.title = element_text(size = 10, family = "Arial")) + 
   ylab(element_blank()) + 
   xlab("Mutant")
 
 p1
 
-
+# Save figure
 ggsave(filename = "outputs_fig3/Figure3A.svg", 
-             device = "svg",
-             width = 3, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
-
-
+       device = "svg",
+       width = 3, 
+       height = 3,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
 ```
 
+# ============================================================================
+# SECTION 2: FEATURE PLOTS - GENE EXPRESSION ON UMAP
+# ============================================================================
 
-```{r}
-DefaultAssay(micdrop) <- "RNA"
+## Figure 3B: meox1 and comp expression
+```{r figure3B-featureplots}
+# Create feature plots for meox1 and comp
+p1 <- FeaturePlot(micdrop, features = "meox1", reduction = "umap") + 
+  NoAxes() + 
+  theme(plot.title = element_text(size = 12, face = "italic"))
 
-micdrop@meta.data <- micdrop@meta.data %>% 
-  mutate(somitic_labs = case_when(
-    curated_cell_type2 %in% c("Somites - Early",
-                              "Somites - Mid", 
-                              "Somites - Late", 
-                              "Sclerotome", 
-                              "Sclerotome - Chondrogenic", 
-                              "Myotome",
-                              "Slow Muscle") ~ curated_cell_type2,
-                               TRUE ~ " "
-  ))
+p2 <- FeaturePlot(micdrop, features = "comp", reduction = "umap") + 
+  NoAxes() + 
+  theme(plot.title = element_text(size = 12, face = "italic"))
 
-Idents(micdrop) <- "somitic_labs"
+# Define shared color scale (grey to magma gradient)
+sc <- scale_color_gradientn(
+  colors = c("lightgrey", viridis(100, option = "magma", direction = -1)), 
+  limits = c(0, 4)
+) 
 
-FeaturePlot_scCustom(micdrop, features = 'meox1', reduction = 'umap', label = TRUE) + ggtitle("meox1 Expression") + NoAxes()
-
-Idents(micdrop) <- "curated_cell_type2"
-
-```
-```{r}
-
-p1 <- FeaturePlot(micdrop, features = "meox1", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
-p2 <- FeaturePlot(micdrop, features = "comp", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
-
-sc <- scale_color_gradientn(colors = c("lightgrey",viridis(100, option = "magma", direction = -1)), limits = c(0,4)) 
-
-p3 <- p1 + sc  + 
+# Apply consistent formatting
+p3 <- p1 + sc + 
   theme(plot.title = element_text(size = 12, face = "italic"),
-        legend.position = "bottom",   # Position legend at the bottom
-        legend.direction = "horizontal"  # Legend items in a horizontal li
-  ) 
-p4 <- p2 + sc  + 
+        legend.position = "bottom",
+        legend.direction = "horizontal")
+
+p4 <- p2 + sc + 
   theme(plot.title = element_text(size = 12, face = "italic"),
-        legend.position = "bottom",   # Position legend at the bottom
-        legend.direction = "horizontal"  # Legend items in a horizontal li
-  ) 
+        legend.position = "bottom",
+        legend.direction = "horizontal")
 
-
+# Save meox1 expression
 p3 + NoLegend() + ggtitle("")
-
 ggsave(filename = "outputs_fig3/Figure3B.png", 
-             device = "png",
-             width = 3, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
+       device = "png",
+       width = 3, 
+       height = 3,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
 
+# Save comp expression
 p4 + NoLegend() + ggtitle("")
-
 ggsave(filename = "outputs_fig3/Figure3B-2.png", 
-             device = "png",
-             width = 3, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
+       device = "png",
+       width = 3, 
+       height = 3,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
 ```
 
+## Figure 3F: gata2a expression
+```{r figure3F-gata2a}
+p1 <- FeaturePlot(micdrop, features = "gata2a", reduction = "umap") + 
+  NoAxes() + 
+  theme(plot.title = element_text(size = 12, face = "italic"))
 
-
-
-```{r}
-p1 <- FeaturePlot(micdrop, features = "gata2a", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
-
-p1 + sc  + 
+p1 + sc + 
   theme(plot.title = element_text(size = 12, face = "italic"),
-        legend.position = "bottom",   # Position legend at the bottom
-        legend.direction = "horizontal"  # Legend items in a horizontal li
-  ) 
+        legend.position = "bottom",
+        legend.direction = "horizontal") 
 
 ggsave(filename = "outputs_fig3/Figure3F.svg", 
-             device = "svg",
-             width = 3, 
-             height = 4,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
+       device = "svg",
+       width = 3, 
+       height = 4,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
 ```
 
-```{r}
+## Figure 3J: dlx1a expression
+```{r figure3J-dlx1a}
+p1 <- FeaturePlot(micdrop, features = "dlx1a", reduction = "umap") + 
+  NoAxes() + 
+  theme(plot.title = element_text(size = 12, face = "italic"))
 
-p1 <- FeaturePlot(micdrop, features = "dlx1a", reduction = "umap") + NoAxes() + theme(plot.title = element_text(size= 12, face ="italic"))
-
-p1 + sc  + 
+p1 + sc + 
   theme(plot.title = element_text(size = 12, face = "italic"),
-        legend.position = "bottom",   # Position legend at the bottom
-        legend.direction = "horizontal"  # Legend items in a horizontal li
-  ) 
+        legend.position = "bottom",
+        legend.direction = "horizontal") 
 
 ggsave(filename = "outputs_fig3/Figure3J.svg", 
-             device = "svg",
-             width = 3, 
-             height = 4,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
-
+       device = "svg",
+       width = 3, 
+       height = 4,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
 ```
 
+# ============================================================================
+# SECTION 3: CELL COMPOSITION ANALYSIS - BOXPLOTS
+# ============================================================================
 
-```{r}
+## Figure 3E: Optic Tectum cell percentages
+```{r figure3E-tectum-boxplot}
+# 1. Prepare the dataframe first
+
 meta <- micdrop@meta.data
 
-##dataframe with cell counts for each replicate / cell type / mutant
+
 counts <- meta %>% 
   group_by(class, group) %>% 
   dplyr::count(curated_cell_type2) %>%
   mutate(total_perturb = sum(n),
          pct_cluster = n / total_perturb ) 
 
+plot_data <- counts %>% 
+  filter(curated_cell_type2 == "Midbrain - Optic Tectum") %>%
+  mutate(class = ifelse(class %in% c("sox11b", "mafba", "neurod1", "nkx2.7"), 
+                        class, "other")) %>%
+  mutate(class = factor(class, levels = c("other", "sox11b", "mafba", 
+                                          "neurod1", "nkx2.7")))
 
-counts %>% filter(curated_cell_type2 == "Midbrain - Optic Tectum") %>%
-  mutate(class = ifelse(class %in% c("sox11b","mafba","neurod1","nkx2.7"), class, "other")) %>%
-  mutate(class = factor(class, levels = c("other","sox11b","mafba","neurod1","nkx2.7"))) %>%
-  ggplot(aes(x=class, y = pct_cluster * 100)) +
+# 2. Plot
+ggplot(plot_data, aes(x = class, y = pct_cluster * 100)) +
+  # Boxplot uses ALL data (plot_data)
   geom_boxplot(fill = 'grey', outliers = FALSE, size = 0.2) + 
-  ylim(c(0,2.0)) +
+  
+  # Jitter uses ONLY data where class is NOT 'other'
+  geom_jitter(data = subset(plot_data, class != "other"), 
+              width = 0.2,  
+              size = 0.35) + 
+  
+  ylim(c(0, 2.0)) +
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, hjust =1, size = 10),
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
         axis.text.y = element_text(size = 10, family = "Arial"),
         axis.title.x = element_text(size = 10, family = "Arial"),
         axis.title.y = element_text(size = 10, family = "Arial"),
         axis.line = element_line(size = 0.2)) +
-  labs( y = "% cells in cluster", x = "Mutation") +
+  labs(y = "% cells in cluster", x = "Mutation") +
   scale_x_discrete(labels = c("other" = "other", 
                               "sox11b" = expression(italic("sox11b")),
                               "mafba" = expression(italic("mafba")),
@@ -210,210 +241,444 @@ counts %>% filter(curated_cell_type2 == "Midbrain - Optic Tectum") %>%
                               "nkx2.7" = expression(italic("nkx2.7"))))
 
 ggsave(filename = "outputs_fig3/Figure3E.eps", 
-             device = "eps",
-             width = 1.75, 
-             height = 2.5,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
+       device = "eps",
+       width = 1.75, 
+       height = 2.5,
+       units = 'in',
+       bg = "transparent")
 ```
 
+## Figure 3I: Hypothalamus cell percentages
+```{r figure3I-hypothalamus-boxplot}
+# 1. Prepare the dataframe 
+plot_data_hypo <- counts %>% 
+  filter(curated_cell_type2 == "Diencephalon - Hypothalamus / POA") %>%
+  mutate(class = ifelse(class %in% c("sox11b", "rx3"), class, "other")) %>%
+  mutate(class = factor(class, levels = c("other", "sox11b", "rx3")))
 
-```{r}
-meta <- micdrop@meta.data
-
-##dataframe with cell counts for each replicate / cell type / mutant
-counts <- meta %>% 
-  group_by(class, group) %>% 
-  dplyr::count(curated_cell_type2) %>%
-  mutate(total_perturb = sum(n),
-         pct_cluster = n / total_perturb ) 
-
-
-counts %>% filter(curated_cell_type2 == "Diencephalon - Hypothalamus") %>%
-  mutate(class = ifelse(class %in% c("sox11b","rx3"), class, "other")) %>%
-  mutate(class = factor(class, levels = c("other","sox11b","rx3"))) %>%
-  ggplot(aes(x=class, y = pct_cluster * 100)) +
+# 2. Plot
+ggplot(plot_data_hypo, aes(x = class, y = pct_cluster * 100)) +
+  # Boxplot uses ALL data
   geom_boxplot(fill = 'grey', outliers = FALSE, size = 0.2) + 
-  ylim(c(0,4)) +
+  
+  # Jitter uses ONLY data where class is NOT 'other'
+  geom_jitter(data = subset(plot_data_hypo, class != "other"), 
+              width = 0.2, 
+              size = 0.35) +
+  
+  ylim(c(0, 4)) +
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, hjust =1, size = 10),
-        axis.text.y = element_text(size = 10, family = "arial"),
-        axis.title.x = element_text(size = 10, family = "arial"),
-        axis.title.y = element_text(size = 10, family = "arial"),
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(size = 10, family = "Arial"),
+        axis.title.x = element_text(size = 10, family = "Arial"),
+        axis.title.y = element_text(size = 10, family = "Arial"),
         axis.line = element_line(size = 0.2)) +
-  labs( y = "% cells in cluster", x = "Mutation") +
+  labs(y = "% cells in cluster", x = "Mutation") +
+  
+  # Cleaned up labels to match only the groups present in this plot
   scale_x_discrete(labels = c("other" = "other", 
                               "sox11b" = expression(italic("sox11b")),
-                              "rx3" = expression(italic("rx3"))
-                              ))
+                              "rx3" = expression(italic("rx3"))))
 
 ggsave(filename = "outputs_fig3/Figure3I.eps", 
-             device = "eps",
-             width = 1.5, 
-             height = 2.5,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
+       device = "eps",
+       width = 1, 
+       height = 2.5,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")
 ```
 
-```{r}
-input <- read.csv(file = 'input_data/gata_measurements.csv')
-gata <- input %>% filter(probe == "gata")
+# ============================================================================
+# SECTION 4: IN SITU HYBRIDIZATION AREA MEASUREMENTS
+# ============================================================================
 
-```
+## Load and prepare ISH measurement data
+```{r load-ish-measurements}
+# Load gata2a area measurements
+gata <- read.csv(file = "input_data/gata_measurements.csv") %>%
+  filter(probe == "gata")
 
-```{r}
-gata <- gata %>% 
-  mutate(norm.head = (mean(head.width) / head.width),
-         norm.yolk = (mean(yolk.width) / yolk.width),
-         area.head.norm = stain.area * norm.head,
-         area.yolk.norm = stain.area * norm.yolk)
+# Normalize area to head width and reorder factor levels
+gata <- gata %>%
+  mutate(head_size_factor = mean(head.width) / head.width) %>%
+  mutate(area.normalized = stain.area * head_size_factor) %>%
+  mutate(injection = factor(genotype, 
+                            levels = c("scramble", "sox11b", "mafba", 
+                                       "neurod1", "nkx2.7")))
 
-
-
-gata
-
-```
-
-```{r}
-gata <- gata %>% mutate(genotype = factor(genotype, levels = c("scramble", "sox11b", "mafba", "neurod1", "nkx2.7")))
-compare <- list(c("scramble","sox11b"), c("scramble","mafba"), c("scramble","neurod1"),c("scramble","nkx2.7"))
-
-
-ggplot(gata, aes(x = genotype, y = area.head.norm)) +
-  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
-  geom_jitter(width = 0.1, size = .2, color = "black") + 
-  theme_classic() +
-  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
-        axis.text.y = element_text(size = 10), 
-        axis.title.x = element_text(size = 10), 
-        axis.title.y = element_text(size = 10),
-        axis.line = element_line(size = 0.2)) +
-  labs(x = "Mutation", y = "Normalized Stain Area") +
-  scale_x_discrete(labels = c("scramble" = "scramble", 
-                              "sox11b" = expression(italic("sox11b")),
-                              "mafba" = expression(italic("mafba")),
-                              "neurod1" = expression(italic("neurod1")),
-                              "nkx2.7" = expression(italic("nkx2.7")))) +
-  stat_compare_means(comparisons = compare, 
-                     method = "t.test", 
-                     label = "p.signif",
-                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) + 
-  ylim(0,13000)
-  
-
-ggsave(filename = "outputs_fig3/Figure3H.eps", 
-             device = "eps",
-             width = 2, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")
-```
-
-
-
-
-```{r}
+# Load dlx1a area measurements  
 dlx <- read.csv(file = "input_data/dlx_measurements.csv")
-dlx
-compare <- list(c("scramble","sox11b"), c("scramble","rx3"))
 
-dlx <- dlx %>% mutate(norm.head = (mean(head_width) / head_width), 
-                      area.normalized = pixel_area * norm.head,
-                      injection = factor(injection, levels = c("scramble","sox11b","rx3"))) 
+# Normalize area to trunk area and reorder factor levels
+dlx <- dlx %>%
+  mutate(head_size_factor = mean(head_width) / head_width) %>%
+  mutate(area.normalized = pixel_area * head_size_factor) %>%
+  mutate(injection = factor(injection, 
+                            levels = c("scramble", "sox11b", "rx3")))
+```
 
-dlx
-
-ggplot(dlx, aes(x = injection, y = area.normalized)) +
+## Figure 3H: gata2a area boxplot
+```{r figure3H-gata-area}
+ggplot(gata, aes(x = injection, y = area.normalized)) +
   geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
-  geom_jitter(width = 0.1, size = .2, color = "black") + 
+  geom_jitter(width = 0.2, size = 0.35, color = "black") + 
   theme_classic() +
   theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
         axis.text.y = element_text(size = 10), 
         axis.title.x = element_text(size = 10), 
         axis.title.y = element_text(size = 10),
         axis.line = element_line(size = 0.2)) + 
-  labs(x = "Mutation", y = "Normalized Stain Area")+
-  scale_x_discrete(labels = c("scramble" = "scramble", 
+  labs(x = "Mutation", y = "Normalized Area") +
+  scale_x_discrete(labels = c("scramble" = "control", 
                               "sox11b" = expression(italic("sox11b")),
-                              "rx3" = expression(italic("rx3")))) +
-  stat_compare_means(comparisons = compare, 
-                     method = "t.test", 
-                     label = "p.signif",
-                     symnum.args = list(cutpoints = c(0, 0.005, 0.0005, 1), symbols = c("*","**","ns"))) +
-  ylim(0,15000)
+                              "mafba" = expression(italic("mafba")),
+                              "neurod1" = expression(italic("neurod1")),
+                              "nkx2.7" = expression(italic("nkx2.7")))) +
+  ylim(c(0,9000))
 
-
-ggsave(filename = "outputs_fig3/Figure3L.eps", 
-             device = "eps",
-             width = 1.5, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent") 
-
+ggsave(filename = "outputs_fig3/Figure3H.eps", 
+       device = "eps",
+       width = 2, 
+       height = 2.5,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent") 
 ```
 
+## Figure 3L: dlx1a area boxplot
+```{r figure3L-dlx-area}
+ggplot(dlx, aes(x = injection, y = area.normalized)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = 0.2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) + 
+  labs(x = "Mutation", y = "Normalized Area") +
+  scale_x_discrete(labels = c("scramble" = "control", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "rx3" = expression(italic("rx3")))) +
+  ylim(0, 9000)
 
+ggsave(filename = "outputs_fig3/Figure3L.eps", 
+       device = "eps",
+       width = 1.5, 
+       height = 2.5,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent") 
+```
 
+## Statistical analysis: Area measurements (ANOVA + Dunnett's test)
+```{r stats-ish-area}
+# gata2a area statistics
+# One-way ANOVA
+gata_anova <- gata %>% anova_test(area.normalized ~ injection)
 
-```{r}
+# Dunnett's post-hoc test (compare all groups to scramble control)
+gata_dunn <- DunnettTest(x = gata$area.normalized, 
+                         g = gata$injection, 
+                         control = "scramble")
+
+# Display results
+cat("\n=== gata2a Area ANOVA ===\n")
+print(gata_anova)
+cat("\n=== gata2a Area Dunnett's Test ===\n")
+print(gata_dunn)
+
+# dlx1a area statistics
+# One-way ANOVA
+dlx_anova <- dlx %>% anova_test(area.normalized ~ injection)
+
+# Dunnett's post-hoc test (compare all groups to scramble control)
+dlx_dunn <- DunnettTest(x = dlx$area.normalized, 
+                        g = dlx$injection, 
+                        control = "scramble")
+
+# Display results
+cat("\n=== dlx1a Area ANOVA ===\n")
+print(dlx_anova)
+cat("\n=== dlx1a Area Dunnett's Test ===\n")
+print(dlx_dunn)
+```
+
+# ============================================================================
+# SECTION 5: SUPPLEMENTARY FIGURES - EXPRESSION VALIDATION
+# ============================================================================
+
+## Figure S3.1: gata2a expression in Optic Tectum
+```{r figureS3-1-gata-violin}
+# Create categorical variable for specific mutations in Optic Tectum
 micdrop@meta.data <- micdrop@meta.data %>%
-  mutate(gata_tectum = ifelse(class %in% c("sox11b","mafba","neurod1","nkx2.7"), class, "other")) %>%
-  mutate(gata_tectum = factor(gata_tectum, levels = c("other","sox11b", "mafba", "neurod1","nkx2.7")))
+  mutate(gata_tectum = ifelse(class %in% c("sox11b", "mafba", 
+                                            "neurod1", "nkx2.7"), 
+                               class, "other")) %>%
+  mutate(gata_tectum = factor(gata_tectum, 
+                               levels = c("other", "sox11b", "mafba", 
+                                          "neurod1", "nkx2.7")))
 
-VlnPlot(micdrop, features = 'gata2a', 
+# Violin plot of gata2a expression
+VlnPlot(micdrop, 
+        features = 'gata2a', 
         idents = "Midbrain - Optic Tectum", 
         group.by = "gata_tectum", 
-        cols = rep("grey",5)) + 
-    NoLegend() +
-    ggtitle("gata2a expression - Optic Tectum") +
-    theme(plot.title = element_text(size = 10)) + 
-    scale_x_discrete(labels = c("other" = "other", 
+        cols = rep("grey", 5)) + 
+  NoLegend() +
+  ggtitle("gata2a expression - Optic Tectum") +
+  theme(plot.title = element_text(size = 10)) + 
+  scale_x_discrete(labels = c("other" = "other", 
                               "sox11b" = expression(italic(sox11b)),
                               "mafba" = expression(italic(mafba)),
                               "neurod1" = expression(italic(neurod1)),
                               "nkx2.7" = expression(italic(nkx2.7))))
 
 ggsave(filename = "outputs_fig3/FigureS3.1.eps", 
-             device = "eps",
-             width = 3, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")       
+       device = "eps",
+       width = 3, 
+       height = 3,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")       
 ```
-2
-```{r}
 
+## Figure S3.1B: dlx1a expression in Hypothalamus
+```{r figureS3-1B-dlx-violin}
+# Create categorical variable for specific mutations in Hypothalamus
 micdrop@meta.data <- micdrop@meta.data %>%
-  mutate(dlx_hypo = ifelse(class %in% c("sox11b","rx3"), class, "other")) %>%
-  mutate(dlx_hypo = factor(dlx_hypo, levels = c("other","sox11b", "rx3")))
+  mutate(dlx_hypo = ifelse(class %in% c("sox11b", "rx3"), class, "other")) %>%
+  mutate(dlx_hypo = factor(dlx_hypo, levels = c("other", "sox11b", "rx3")))
 
-VlnPlot(micdrop, features = 'dlx1a', 
-        idents = "Diencephalon - Hypothalamus", 
+# Violin plot of dlx1a expression
+VlnPlot(micdrop, 
+        features = 'dlx1a', 
+        idents = "Diencephalon - Hypothalamus / POA", 
         group.by = "dlx_hypo", 
-        cols = rep("grey",3)) + 
-    NoLegend() +
-    ggtitle("dlx1a expression - Hypothalamus") +
-    theme(plot.title = element_text(size = 10)) + 
-    scale_x_discrete(labels = c("other" = "other", 
+        cols = rep("grey", 3)) + 
+  NoLegend() +
+  ggtitle("dlx1a expression - Hypothalamus / POA") +
+  theme(plot.title = element_text(size = 10)) + 
+  scale_x_discrete(labels = c("other" = "other", 
                               "sox11b" = expression(italic(sox11b)),
-                              "rx3" = expression(italic(rx3))
-                              ))
+                              "rx3" = expression(italic(rx3))))
 
 ggsave(filename = "outputs_fig3/FigureS3.1B.eps", 
-             device = "eps",
-             width = 3, 
-             height = 3,
-             units = 'in',
-             dpi = "retina",
-             bg = "transparent")  
+       device = "eps",
+       width = 3, 
+       height = 3,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")  
+```
+
+## Verify no significant DEG for probe genes
+```{r verify-deg-results}
+# Reference DEG results to ensure no significant difference between 
+# mutants for dlx1a and gata2a probed genes
+
+# Load differential expression results
+DEG_results <- readRDS(file = "input_data/DEG_results_5_9_24.rds")
+
+# Extract dlx1a test results for relevant mutations in Hypothalamus
+dlx1a_test_results <- DEG_results %>% 
+  filter(perturbation %in% c("rx3", "sox11b"), 
+         cell_type == "Diencephalon - Hypothalamus", 
+         gene == "dlx1a")
+
+# Extract gata2a test results for relevant mutations in Optic Tectum
+gata2a_test_results <- DEG_results %>% 
+  filter(perturbation %in% c("mafba", "sox11b", "neurod1", "nkx2.7"), 
+         cell_type == "Midbrain - Optic Tectum", 
+         gene == "gata2a")
+
+cat("\n=== dlx1a Expression Test Results ===\n")
+print(dlx1a_test_results)
+
+cat("\n=== gata2a Expression Test Results ===\n")
+print(gata2a_test_results)
+```
+
+# ============================================================================
+# SECTION 6: RHOMBOMERE WIDTH MEASUREMENTS
+# ============================================================================
+
+## Load and prepare width measurement data
+```{r load-width-measurements}
+# Load egr2b rhombomere measurements
+egr2b_measure <- read.csv(file = "input_data/egr2b_measure_repeat2.csv")
+
+# Normalize R3 and R5 widths to trunk width
+egr2b_measure <- egr2b_measure %>% 
+  mutate(R3_norm = R3_width / trunk_width, 
+         R5_norm = R5_width / trunk_width) %>%
+  # Reorder factor levels for plotting
+  mutate(Mutant = factor(Mutant, 
+                         levels = c("scramble", "sox11b", "rx3", 
+                                    "neurod1", "mafba", "nkx2.7")))
+
+# Load ntl (notochord) measurements
+ntl_measure <- read.csv(file = "input_data/ntl_measurements.csv")
+
+# Normalize notochord width to trunk width
+ntl_measure <- ntl_measure %>% 
+  mutate(ntc_norm = ntc_width / trunk_width) %>%
+  # Reorder factor levels for plotting
+  mutate(Mutant = factor(Mutant, 
+                         levels = c("scramble", "sox11b", "rx3", 
+                                    "neurod1", "mafba", "nkx2.7")))
+```
+
+## Figure S9D: Rhombomere 3 width
+```{r figureS9D-R3-width}
+
+ggplot(egr2b_measure, aes(x = Mutant, y = R3_norm)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = 0.2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) + 
+  labs(x = "Mutation", y = "Normalized Width") +
+  scale_x_discrete(labels = c("scramble" = "control", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "mafba" = expression(italic("mafba")),
+                              "neurod1" = expression(italic("neurod1")),
+                              "nkx2.7" = expression(italic("nkx2.7")),
+                              "rx3" = expression(italic("rx3")))) +
+  ylim(0, 1)
+
+ggsave(filename = "outputs_fig3/FigureS9D.eps", 
+       device = "eps",
+       width = 2.5, 
+       height = 2.5,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")  
 
 ```
 
+## Figure S9E: Rhombomere 5 width
+```{r figureS9E-R5-width}
+ggplot(egr2b_measure, aes(x = Mutant, y = R5_norm)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = 0.2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) + 
+  labs(x = "Mutation", y = "Normalized Width") +
+  scale_x_discrete(labels = c("scramble" = "control", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "mafba" = expression(italic("mafba")),
+                              "neurod1" = expression(italic("neurod1")),
+                              "nkx2.7" = expression(italic("nkx2.7")),
+                              "rx3" = expression(italic("rx3")))) +
+  ylim(0, 1)
+
+ggsave(filename = "outputs_fig3/FigureS9E.eps", 
+       device = "eps",
+       width = 2.5, 
+       height = 2.5,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")  
+```
+
+## Figure S9G: Notochord width
+```{r figureS9G-notochord-width}
+ggplot(ntl_measure, aes(x = Mutant, y = ntc_norm)) +
+  geom_boxplot(fill = "lightgrey", size = 0.2, outliers = FALSE) + 
+  geom_jitter(width = 0.1, size = 0.2, color = "black") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10), 
+        axis.title.x = element_text(size = 10), 
+        axis.title.y = element_text(size = 10),
+        axis.line = element_line(size = 0.2)) + 
+  labs(x = "Mutation", y = "Normalized Width") +
+  scale_x_discrete(labels = c("scramble" = "control", 
+                              "sox11b" = expression(italic("sox11b")),
+                              "mafba" = expression(italic("mafba")),
+                              "neurod1" = expression(italic("neurod1")),
+                              "nkx2.7" = expression(italic("nkx2.7")),
+                              "rx3" = expression(italic("rx3")))) +
+  ylim(0, 1)
+
+ggsave(filename = "outputs_fig3/FigureS9G.eps", 
+       device = "eps",
+       width = 2.5, 
+       height = 2.5,
+       units = 'in',
+       dpi = "retina",
+       bg = "transparent")  
+```
+
+## Statistical analysis: Width measurements (ANOVA + Dunnett's test)
+```{r stats-width-measurements}
+# Rhombomere 5 width statistics
+R5_anova <- egr2b_measure %>% anova_test(R5_norm ~ Mutant)
+dunn_R5 <- DunnettTest(x = egr2b_measure$R5_norm, 
+                       g = egr2b_measure$Mutant, 
+                       control = "scramble")
+
+# Rhombomere 3 width statistics
+R3_anova <- egr2b_measure %>% anova_test(R3_norm ~ Mutant)
+dunn_R3 <- DunnettTest(x = egr2b_measure$R3_norm, 
+                       g = egr2b_measure$Mutant, 
+                       control = "scramble")
+
+# Notochord width statistics
+ntc_anova <- ntl_measure %>% anova_test(ntc_norm ~ Mutant)
+dunn_ntc <- DunnettTest(x = ntl_measure$ntc_norm, 
+                        g = ntl_measure$Mutant, 
+                        control = "scramble")
+
+# Display all results
+cat("\n=== Rhombomere 5 Width ANOVA ===\n")
+print(R5_anova)
+cat("\n=== Rhombomere 5 Width Dunnett's Test ===\n")
+print(dunn_R5)
+
+cat("\n=== Rhombomere 3 Width ANOVA ===\n")
+print(R3_anova)
+cat("\n=== Rhombomere 3 Width Dunnett's Test ===\n")
+print(dunn_R3)
+
+cat("\n=== Notochord Width ANOVA ===\n")
+print(ntc_anova)
+cat("\n=== Notochord Width Dunnett's Test ===\n")
+print(dunn_ntc)
+```
+```{r}
 
 
+# Rhombomere 5 width statistics
+R5_anova <- egr2b_measure %>% anova_test(R5_norm ~ Mutant)
+dunn_R5 <- DunnettTest(x = egr2b_measure$R5_norm, 
+                       g = egr2b_measure$Mutant, 
+                       control = "scramble")
+
+# Rhombomere 3 width statistics
+R3_anova <- egr2b_measure %>% anova_test(R3_norm ~ Mutant)
+dunn_R3 <- DunnettTest(x = egr2b_measure$R3_norm, 
+                       g = egr2b_measure$Mutant, 
+                       control = "scramble")
+
+# Display all results
+cat("\n=== Rhombomere 5 Width ANOVA ===\n")
+print(R5_anova)
+cat("\n=== Rhombomere 5 Width Dunnett's Test ===\n")
+print(dunn_R5)
+
+cat("\n=== Rhombomere 3 Width ANOVA ===\n")
+print(R3_anova)
+cat("\n=== Rhombomere 3 Width Dunnett's Test ===\n")
+print(dunn_R3)
+```
 

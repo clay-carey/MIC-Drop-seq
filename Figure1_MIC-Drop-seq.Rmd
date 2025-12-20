@@ -885,6 +885,71 @@ ggsave(filename = "outputs_fig1/Figre_1I.png",
              bg = "transparent")
 ```
 
+```{r}
+cdx_spinal_cells <- mdp_filt@meta.data %>% 
+  filter(seurat_clusters %in% c(4,28), class == 'cdx4') %>%
+  pull(cell_barcode)
+
+control_cells <- mdp_filt@meta.data %>%
+  filter(seurat_clusters  %in% c(4,28), class != "cdx4") %>%
+  pull(cell_barcode)
+
+#Calculate DEGs
+cdx_deg <- FindMarkers(mdp_filt, ident.1 = cdx_spinal_cells, ident.2 = control_cells)
+
+
+# Manually add the genes of interest to ensure they exist in the mock data
+genes_of_interest <- c("hoxb9a", "hoxa9a", "hoxc6b")
+
+# Create a column to identify the specific genes to highlight
+cdx_deg <- cdx_deg %>%
+  rownames_to_column("gene") %>%
+  mutate(
+    is_highlight = gene %in% genes_of_interest,
+    log_p = -log10(p_val_adj)
+  )
+
+# Subset the highlighted genes for a separate layer
+highlight_subset <- cdx_deg %>% filter(is_highlight)
+
+
+ggplot(cdx_deg, aes(x = avg_log2FC, y = log_p)) +
+  # 1. Plot all points in light grey
+  geom_point(color = "grey70", alpha = 0.6, size = 1.5) +
+  
+  # 2. Plot the highlighted genes in black
+  geom_point(data = highlight_subset, color = "black", size = 3) +
+  
+  # 3. Add labels for the highlighted genes
+  geom_label_repel(data = highlight_subset, aes(label = gene), 
+            fontface = "italic", force = 2) +
+  
+  # 4. Styling (Simple & Greyscale)
+  theme_classic() +
+  labs(
+    title = expression(italic("cdx4") ~ "- Spinal Cord DEGs"),
+    x = "Average Log2 Fold Change",
+    y = "-Log10 Adjusted P-value"
+  ) +
+  # Add dashed lines for significance thresholds (optional but standard)
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey50") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey50") +
+  
+  # Center the title
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+ggsave(filename = "outputs_fig1/Figure_S5C.png", 
+             device = "png",
+             width = 3,
+             height = 3,
+             units = 'in',
+             dpi = "retina",
+             bg = "transparent")
+```
+
+
 Figure S3A
 ```{r}
 mdp_filt@meta.data <- mdp_filt@meta.data %>%
