@@ -1,5 +1,5 @@
 ---
-title: "Figure 3: MIC-Drop-seq Analysis - meox1 Phenotype Validation"
+title: "Figure 3: MIC-Drop-seq Analysis - transcriptional and cellular phenotype validation"
 author: "Clay Carey"
 output: html_document
 ---
@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup}
 # Set working directory for analysis- you MUST download the input dat aand set this directory manually for the code to work
-knitr::opts_knit$set(root.dir = "path_to_input_data")
+knitr::opts_knit$set(root.dir = "")
 ```
 
 
@@ -18,11 +18,8 @@ library(Seurat)
 library(dplyr)
 library(ggplot2)
 library(tidyverse)
-
-# Single-cell specific
+library(ComplexHeatmap)
 library(scCustomize)
-
-# Visualization
 library(viridis)
 library(cowplot)
 library(ggpubr)

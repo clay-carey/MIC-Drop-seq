@@ -20,7 +20,7 @@ output:
 
 
 # Set working directory for analysis- you MUST download the input dat aand set this directory manually for the code to work
-knitr::opts_knit$set(root.dir = "path_to_input_data")
+knitr::opts_knit$set(root.dir = "")
 ```
 
 
@@ -31,7 +31,7 @@ knitr::opts_chunk$set(
   fig.width = 10,
   fig.height = 8
 )
-```
+
 
 # Overview
 
@@ -47,6 +47,7 @@ MIC-Drop-seq manuscript. The analysis covers:
 # Required Libraries
 
 ```{r load-libraries}
+
 # ==============================================================================
 # LOAD REQUIRED PACKAGES
 # ==============================================================================
@@ -78,6 +79,7 @@ library(ggtext)            # Enhanced text rendering in ggplot
 
 # Tables
 library(gtExtras)          # Enhanced gt tables
+
 ```
 
 # Part 1: Data Processing (OPTIONAL)
@@ -112,6 +114,7 @@ for (i in 1:16) {
 ## 1.2 Process gRNA Feature Calls
 
 ```{r process-grna-features, eval=FALSE}
+
 # ==============================================================================
 # PARSE gRNA FEATURE CALLS INTO SEPARATE COLUMNS
 # ==============================================================================
@@ -150,6 +153,7 @@ process_data <- function(data) {
 
 # Apply processing to all samples
 proto_processed <- lapply(data_list, process_data)
+
 ```
 
 ## 1.3 Classify Cells by Genotype
@@ -329,6 +333,69 @@ micdrop <- subset(micdrop, subset = percent.mt < 10 &
                     nFeature_RNA < 9000)
 ```
 
+## Figure S6C - gRNA UMI Distribution
+
+```{r figure-s6c}
+# ==============================================================================
+# FIGURE S6C: gRNA UMI DISTRIBUTION
+# ==============================================================================
+
+micdrop@meta.data %>% 
+  filter(class != "ND") %>%
+  ggplot(aes(x = nCount_CRISPR)) +
+  geom_histogram(binwidth = 1, fill = "black") +
+  scale_x_continuous(limits = c(0, 75)) +
+  theme_classic() +
+  theme(
+    text = element_text(family = "Arial", size = 12, color = "black"),
+    axis.text = element_text(size = 12, color = "black", family = "Arial")
+  ) +
+  xlab("gRNA UMIs") +
+  ylab("Cell Count")
+
+ggsave(filename = "outputs_fig2/Figure_S6C.eps",
+       device = cairo_ps, width = 2, height = 2, units = 'in',
+       dpi = "retina", bg = "transparent")
+```
+
+##  Figure S6D - gRNA Detection Summary
+
+```{r figure-s6d}
+# ==============================================================================
+# FIGURE S6D: CELLS BY gRNA DETECTION STATUS
+# ==============================================================================
+
+# Classify cells by number of gene targets detected
+micdrop@meta.data <- micdrop@meta.data %>% 
+  mutate(class_type = case_when(
+    class == "ND" ~ "0",
+    class == "Multiple" ~ "2+",
+    TRUE ~ "1"
+  ))
+
+micdrop@meta.data %>% 
+  dplyr::count(class_type) %>%
+  ggplot() +
+  geom_bar(aes(x = class_type, y = n / 1000), stat = "identity", fill = "black") +
+  theme_classic() +
+  xlab("gRNA targets") +
+  ylab("Cells (thousands)") +
+  scale_y_continuous(labels = scales::comma, breaks = seq(0, 300, by = 25)) +
+  theme(
+    axis.text = element_text(size = 12, family = "Arial", color = "black"),
+    axis.title = element_text(size = 12, family = "Arial", color = "black")
+  )
+
+# Print summary statistics
+micdrop@meta.data %>% 
+  dplyr::count(class_type) %>% 
+  mutate(total = sum(n), pct = n / total)
+
+ggsave(filename = "outputs_fig2/Figure_S6D.eps",
+       device = cairo_ps, width = 2, height = 2, units = 'in',
+       dpi = "retina", bg = "transparent")
+```
+
 ## 1.7 Data Integration (rPCA)
 
 ```{r rpca-integration, eval=FALSE}
@@ -382,7 +449,8 @@ micdrop <- readRDS(file = "input_data/micdrop_int_xfer.RDS")
 micdrop$cell_barcode <- rownames(micdrop@meta.data)
 ```
 
-## 2.2 Add Cell Type Annotations
+
+##  Add Cell Type Annotations
 
 ```{r add-annotations}
 # ==============================================================================
@@ -402,6 +470,8 @@ metadata <- metadata %>%
 micdrop@meta.data <- micdrop@meta.data %>% 
   left_join(metadata, by = "cell_barcode") %>%
   column_to_rownames(var = "cell_barcode")
+
+
 ```
 
 ## 2.3 Remove Low-Quality Clusters
@@ -681,6 +751,7 @@ edgeR_pbulk <- function(so, resolution = "curated_cell_type2") {
 ## 4.2 Helper Function for Cell Counts
 
 ```{r deg-helper}
+
 # ==============================================================================
 # ADD CELL COUNT METADATA TO DEG RESULTS
 # ==============================================================================
@@ -701,11 +772,13 @@ deg_helper_fn <- function(results, so, resolution) {
   
   return(res_mod)
 }
+
 ```
 
 ## 4.3 Run DEG Analysis
 NOTE: this takes a LONG time and may not work on all hardware. You may skip ahead by loading the pre computed DEG results. 
 ```{r run-deg-analysis, eval=FALSE}
+
 # ==============================================================================
 # RUN PSEUDOBULK DEG TESTING
 # ==============================================================================
@@ -716,6 +789,7 @@ DEG_results <- deg_helper_fn(DEG_results, resolution = 'curated_cell_type2', so 
 
 # Save results
 saveRDS(DEG_results, file = "DEG_results.rds")
+
 ```
 
 ## 4.4 Load Pre-computed DEG Results
@@ -1057,70 +1131,8 @@ dev.off()
 
 ---
 
-# Part 7: Supplementary Figures
+# Part 7: Supplementary Figures II
 
-## 7.1 Figure S6C - gRNA UMI Distribution
-
-```{r figure-s6c}
-# ==============================================================================
-# FIGURE S6C: gRNA UMI DISTRIBUTION
-# ==============================================================================
-
-micdrop@meta.data %>% 
-  filter(class != "ND") %>%
-  ggplot(aes(x = nCount_CRISPR)) +
-  geom_histogram(binwidth = 1, fill = "black") +
-  scale_x_continuous(limits = c(0, 75)) +
-  theme_classic() +
-  theme(
-    text = element_text(family = "Arial", size = 12, color = "black"),
-    axis.text = element_text(size = 12, color = "black", family = "Arial")
-  ) +
-  xlab("gRNA UMIs") +
-  ylab("Cell Count")
-
-ggsave(filename = "outputs_fig2/Figure_S6C.eps",
-       device = cairo_ps, width = 2, height = 2, units = 'in',
-       dpi = "retina", bg = "transparent")
-```
-
-## 7.2 Figure S6D - gRNA Detection Summary
-
-```{r figure-s6d}
-# ==============================================================================
-# FIGURE S6D: CELLS BY gRNA DETECTION STATUS
-# ==============================================================================
-
-# Classify cells by number of gene targets detected
-micdrop@meta.data <- micdrop@meta.data %>% 
-  mutate(class_type = case_when(
-    class == "ND" ~ "0",
-    class == "Multiple" ~ "2+",
-    TRUE ~ "1"
-  ))
-
-micdrop@meta.data %>% 
-  dplyr::count(class_type) %>%
-  ggplot() +
-  geom_bar(aes(x = class_type, y = n / 1000), stat = "identity", fill = "black") +
-  theme_classic() +
-  xlab("gRNA targets") +
-  ylab("Cells (thousands)") +
-  scale_y_continuous(labels = scales::comma, breaks = seq(0, 300, by = 25)) +
-  theme(
-    axis.text = element_text(size = 12, family = "Arial", color = "black"),
-    axis.title = element_text(size = 12, family = "Arial", color = "black")
-  )
-
-# Print summary statistics
-micdrop@meta.data %>% 
-  dplyr::count(class_type) %>% 
-  mutate(total = sum(n), pct = n / total)
-
-ggsave(filename = "outputs_fig2/Figure_S6D.eps",
-       device = cairo_ps, width = 2, height = 2, units = 'in',
-       dpi = "retina", bg = "transparent")
-```
 
 ## 7.3 Figure S7A - Perturbed Cell Types per Mutation
 

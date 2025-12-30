@@ -11,7 +11,7 @@ First- set your base directory to the folder with the downloaded 'input_data" fo
 
 ```{r setup}
 # Set working directory for analysis- you MUST download the input dat aand set this directory manually for the code to work
-knitr::opts_knit$set(root.dir = "path_to_input_data")
+knitr::opts_knit$set(root.dir = "")
 ```
 
 

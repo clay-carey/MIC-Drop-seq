@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup}
-knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
+knitr::opts_knit$set(root.dir = "")
 ```
 
 Import required packages
@@ -40,21 +40,8 @@ combined.meta <- readRDS(file = "input_data/lineagemeta.rds")
 
 head(dcell_lineage)
 
-
 ```
 
-Trim excess data from daniocell, keeping only expression of micdrop-seq target genes
-```{r}
-## DietSeurat removes all gene expression data except for CRISPR target genes
-## This reduces memory footprint for downstream analysis
-dcell <- DietSeurat(dcell, features = unique(combined.meta$class))
-
-## Add lineage identifiers to metadata by matching on full_ident column
-dcell@meta.data <- dcell@meta.data %>% 
-  left_join(dcell_lineage, by = "full_ident")
-
-rownames(dcell@meta.data) <- dcell@meta.data$CELL
-```
 
 # =============================================================================
 # EXPRESSION ANALYSIS - DANIOCELL
