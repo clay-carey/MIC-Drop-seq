@@ -72,10 +72,11 @@ BiocManager::install(c(
 # GitHub packages
 devtools::install_github("samuel-marsh/scCustomize")
 devtools::install_github("dtm2451/dittoSeq")
+devtools::install_github("cole-trapnell-lab/PLNmodels") 
 devtools::install_github("cole-trapnell-lab/hooke")
 
-# PLNmodels (CRAN)
-install.packages("PLNmodels")
+
+
 ```
 
 ---

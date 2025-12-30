@@ -1,14 +1,15 @@
 ---
 title: "Figure 3: MIC-Drop-seq Analysis - meox1 Phenotype Validation"
 author: "Clay Carey"
-date: "2024-09-23"
 output: html_document
 ---
 
+
 ```{r setup}
-# Set working directory for analysis
-knitr::opts_knit$set(root.dir = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/Code_for_submission/MIC-Drop-seq")
+# Set working directory for analysis- you MUST download the input dat aand set this directory manually for the code to work
+knitr::opts_knit$set(root.dir = "path_to_input_data")
 ```
+
 
 ## Load Required Libraries
 ```{r load-libraries, message=FALSE, warning=FALSE}
@@ -666,32 +667,6 @@ cat("\n=== Notochord Width Dunnett's Test ===\n")
 print(dunn_ntc)
 ```
 
-```{r}
-
-
-# Rhombomere 5 width statistics
-R5_anova <- egr2b_measure %>% anova_test(R5_norm ~ Mutant)
-dunn_R5 <- DunnettTest(x = egr2b_measure$R5_norm, 
-                       g = egr2b_measure$Mutant, 
-                       control = "scramble")
-
-# Rhombomere 3 width statistics
-R3_anova <- egr2b_measure %>% anova_test(R3_norm ~ Mutant)
-dunn_R3 <- DunnettTest(x = egr2b_measure$R3_norm, 
-                       g = egr2b_measure$Mutant, 
-                       control = "scramble")
-
-# Display all results
-cat("\n=== Rhombomere 5 Width ANOVA ===\n")
-print(R5_anova)
-cat("\n=== Rhombomere 5 Width Dunnett's Test ===\n")
-print(dunn_R5)
-
-cat("\n=== Rhombomere 3 Width ANOVA ===\n")
-print(R3_anova)
-cat("\n=== Rhombomere 3 Width Dunnett's Test ===\n")
-print(dunn_R3)
-```
 ```{r}
 # Filter for cell types with >800 cells
 celltypes_keep <- micdrop@meta.data %>%
