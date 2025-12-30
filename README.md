@@ -16,24 +16,24 @@ Advances in genome engineering and single-cell RNA sequencing (scRNAseq) have re
 This repository contains R Markdown files to reproduce all main and supplementary figures from the manuscript:
 
 - `Figure1_MIC-Drop-seq.Rmd` - Proof-of-concept validation (8-gene pilot)
-- `Figure2_MIC-Drop-seq.Rmd` - 50-gene screen analysis  
-- `Figure3_MIC-Drop-seq.Rmd` - Phenotype validations
-- `Figure4_MIC-Drop-seq.Rmd` - Cell-extrinsic effects
+- `Figure2_MIC-Drop-seq.Rmd` - 50-gene screen analysis 
+- `Figure3_MIC-Drop-seq.Rmd` - Phenotype validations and analysis
+- `Figure4_MIC-Drop-seq.Rmd` - Phenotype classification and validation
 
 ---
 
 ## Requirements
 
 **Software:**
-- R ≥ 4.0 (tested on 4.3.1)
+- R ≥ 4.0 
 - RStudio (recommended)
 
 
 **Hardware:**
 - 16 GB RAM minimum, 32 GB recommended
-- ~5 GB free disk space
+- ~30 GB free disk space, 2+ TB if using raw data
 
-Tested on macOS Ventura/Sonoma and Ubuntu 20.04/22.04.
+Tested on macOS Sequoia 15.5
 
 ---
 
@@ -42,28 +42,37 @@ Tested on macOS Ventura/Sonoma and Ubuntu 20.04/22.04.
 Install R packages:
 
 ```r
-# CRAN packages
-install.packages(c("tidyverse", "ggplot2", "viridis", "BiocManager", "devtools"))
+# Install required R packages for MIC-Drop-seq analysis
 
-# Bioconductor
-BiocManager::install(c("Seurat", "edgeR", "monocle3", "ComplexHeatmap"))
+# CRAN packages
+install.packages(c("tidyverse", "ggplot2", "viridis", "cowplot", "patchwork",
+                   "ggpubr", "ggtext", "ggrepel", "ggridges", "rstatix", 
+                   "DescTools", "igraph", "gtExtras", "circlize", 
+                   "devtools", "BiocManager"))
+
+# Bioconductor packages
+BiocManager::install(c("Seurat", "edgeR", "presto", "SingleCellExperiment", 
+                       "scDblFinder", "ComplexHeatmap", "EnhancedVolcano", 
+                       "monocle3", "SeuratWrappers"))
 
 # GitHub packages
-devtools::install_github("samuel-marsh/scCustomize")
-devtools::install_github("cole-trapnell-lab/hooke")
+devtools::install_github(c("samuel-marsh/scCustomize", 
+                           "dtm2451/dittoSeq",
+                           "cole-trapnell-lab/hooke",
+                           "cole-trapnell-lab/PLNmodels", 
+                           "jokergoo/bubbleHeatmap"))
 ```
 
-Installation takes ~20-30 minutes depending on your system.
-
+Note: to exactly recapitulate q values for differential abundance analysis, this source of PLNmodels must be used 
 ---
 
 ## Getting the data
 
-Download input data (1.2 GB) from Google Drive:
+Download processed input data (~30 GB):
 
-**[Download input_data.zip](https://drive.google.com/file/d/1_s4SJdaYLeF-0qQSutJPpQfDakyEfRVV/view?usp=drive_link)**
+**[Download input_data.zip](https://drive.google.com/file/d/1UcX7488msB4lrT9UUWTUvYUg4rvRFYHe/view?usp=drive_link)**
 
-Extract to `input_data/` in this directory.
+Extract to `input_data/` in your chosen directory.
 
 The data includes:
 - Processed Seurat objects (pilot data,  50-gene screen)
@@ -99,6 +108,7 @@ Each .Rmd file generates the corresponding figure panels:
 | Figure 3 | ~20 min | Main: 3A-L; Supp: S9 |
 | Figure 4 | ~20 min | Main: 4A-I; Supp: S10-S11 |
 
+
 Outputs are saved to `outputs_fig*/` directories. Total runtime ~1-1.5 hours on a standard desktop.
 
 ---
@@ -108,9 +118,9 @@ Outputs are saved to `outputs_fig*/` directories. Total runtime ~1-1.5 hours on 
 
 ## Data availability
 
-**Processed data**: Available via Google Drive link above
+**Processed data**: Available via the link above
 
-**Raw sequencing**: Will be available on GEO upon publication
+**Raw sequencing**: Will be available on GEO upon publication alongside processed data
 
 ---
 
@@ -132,7 +142,7 @@ Outputs are saved to `outputs_fig*/` directories. Total runtime ~1-1.5 hours on 
 
 ## Contact
 
-**Primary Author** 
+**Primary Code/Analysis** 
 - Clay Carey: clay.carey@utah.edu
 
 **Corresponding authors:**
@@ -144,4 +154,4 @@ Outputs are saved to `outputs_fig*/` directories. Total runtime ~1-1.5 hours on 
 
 ## License
 
-CC BY-NC 4.0
+CC BY 4.0
