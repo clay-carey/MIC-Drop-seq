@@ -1,0 +1,40 @@
+# Track ONLY .Rmd files and README.md files
+# Exclude everything else by default
+
+# System files
+.DS_Store
+.Rproj.user/
+*.Rproj
+
+# All data files
+input_data/
+
+# All output files
+outputs_fig1/
+outputs_fig2/
+outputs_fig3/
+outputs_fig4/
+
+# All generated files
+*.html
+*.nb.html
+*.pdf
+*.png
+*.eps
+*.svg
+*.csv
+
+# R specific
+.Rhistory
+.RData
+.Ruserdata
+*.rds
+*.RData
+
+# Scripts (unless you want to track these too)
+*.R
+
+# Markdown files - EXCEPT README
+*.md
+!README.md
+!**/README.md

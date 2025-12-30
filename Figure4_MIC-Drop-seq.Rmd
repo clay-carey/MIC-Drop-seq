@@ -672,7 +672,7 @@ pct_perturbed %>%
 ggplot(aes(x = autonomy_possible, y = pct, fill = autonomy_possible)) + 
   geom_bar(stat = 'identity', color = "black") +
   scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0), limits = c(0,.25)) +  # Remove gap with expand
-  labs(y = "Perturbation Frequency", x = "Target expression") +
+  labs(y = "Phenotype Frequency", x = "Target expression") +
   theme_classic() + 
   coord_flip() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),

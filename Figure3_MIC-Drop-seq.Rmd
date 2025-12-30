@@ -384,6 +384,8 @@ gata_dunn <- DunnettTest(x = gata$area.normalized,
                          control = "scramble")
 
 # Display results
+cat("Sample table gata2a - n values per sample")
+print(table(gata$injection))
 cat("\n=== gata2a Area ANOVA ===\n")
 print(gata_anova)
 cat("\n=== gata2a Area Dunnett's Test ===\n")
@@ -399,6 +401,8 @@ dlx_dunn <- DunnettTest(x = dlx$area.normalized,
                         control = "scramble")
 
 # Display results
+cat("Sample table dlx1a - n values per sample")
+print(table(dlx$injection))
 cat("\n=== dlx1a Area ANOVA ===\n")
 print(dlx_anova)
 cat("\n=== dlx1a Area Dunnett's Test ===\n")
@@ -640,21 +644,28 @@ dunn_ntc <- DunnettTest(x = ntl_measure$ntc_norm,
                         control = "scramble")
 
 # Display all results
+cat("Sample table - n embryos")
+print(table(egr2b_measure$Mutant))
 cat("\n=== Rhombomere 5 Width ANOVA ===\n")
 print(R5_anova)
 cat("\n=== Rhombomere 5 Width Dunnett's Test ===\n")
 print(dunn_R5)
 
+cat("Sample table - n embryos")
+print(table(egr2b_measure$Mutant))
 cat("\n=== Rhombomere 3 Width ANOVA ===\n")
 print(R3_anova)
 cat("\n=== Rhombomere 3 Width Dunnett's Test ===\n")
 print(dunn_R3)
 
+cat("Sample table - n embryos")
+print(table(ntl_measure$Mutant))
 cat("\n=== Notochord Width ANOVA ===\n")
 print(ntc_anova)
 cat("\n=== Notochord Width Dunnett's Test ===\n")
 print(dunn_ntc)
 ```
+
 ```{r}
 
 
@@ -681,4 +692,118 @@ print(R3_anova)
 cat("\n=== Rhombomere 3 Width Dunnett's Test ===\n")
 print(dunn_R3)
 ```
+```{r}
+# Filter for cell types with >800 cells
+celltypes_keep <- micdrop@meta.data %>%
+  dplyr::count(curated_cell_type2) %>%
+  filter(n > 800) %>%
+  pull(curated_cell_type2)
+
+# Calculate mean percentage per genotype per cluster (across 4 replicates)
+heatmap_data <- micdrop@meta.data %>%
+  filter(curated_cell_type2 %in% celltypes_keep) %>%
+  group_by(class, group, curated_cell_type2) %>%
+  summarize(n = n(), .groups = "drop") %>%
+  group_by(class, group) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  ungroup() %>%
+  # Average across the 4 replicates
+  group_by(class, curated_cell_type2) %>%
+  summarize(mean_pct = mean(pct), .groups = "drop")
+
+# Create separate dataframes for target genotypes and "other"
+target_genotypes <- heatmap_data %>%
+  filter(class %in% c("sox11b", "mafba", "neurod1", "nkx2.7", "rx3")) %>%
+  pivot_wider(names_from = curated_cell_type2, 
+              values_from = mean_pct, 
+              values_fill = 0) %>%
+  column_to_rownames(var = "class")
+
+# Calculate "other" as mean of all non-target genotypes
+other_data <- heatmap_data %>%
+  filter(!class %in% c("sox11b", "mafba", "neurod1", "nkx2.7", "rx3")) %>%
+  group_by(curated_cell_type2) %>%
+  summarize(mean_pct = mean(mean_pct), .groups = "drop") %>%
+  pivot_wider(names_from = curated_cell_type2, 
+              values_from = mean_pct, 
+              values_fill = 0)
+
+# Add "other" as a row
+rownames(other_data) <- "curated_cell_type2"
+other_row <- other_data %>%
+  t() %>%
+  as.data.frame()
+colnames(other_row) <- "other"
+other_row <- t(other_row)
+
+# Combine with target genotypes in specified order
+row_order <- c("other", "neurod1", "mafba", "nkx2.7", "sox11b", "rx3")
+heatmap_matrix <- rbind(other_row, as.matrix(target_genotypes))
+heatmap_matrix <- heatmap_matrix[row_order, ]
+
+# Color scale
+library(circlize)
+col_fun4 <- colorRamp2(
+  breaks = seq(0, 4, length.out = 100),
+  colors = viridis(100, option = "mako")
+)
+
+# Find column indices
+hypothalamus_col <- which(colnames(heatmap_matrix) == "Diencephalon - Hypothalamus")
+if (length(hypothalamus_col) == 0) {
+  hypothalamus_col <- grep("Hypothalamus", colnames(heatmap_matrix), value = FALSE)
+}
+
+tectum_col <- which(colnames(heatmap_matrix) == "Midbrain - Optic Tectum")
+if (length(tectum_col) == 0) {
+  tectum_col <- grep("Optic Tectum", colnames(heatmap_matrix), value = FALSE)
+}
+
+# Create cell highlighting function
+cell_fun <- function(j, i, x, y, width, height, fill) {
+  if (length(hypothalamus_col) > 0 && length(tectum_col) > 0) {
+    # Hypothalamus: sox11b and rx3
+    if (j == hypothalamus_col && i %in% match(c("sox11b", "rx3"), rownames(heatmap_matrix))) {
+      grid.rect(x, y, width, height, 
+                gp = gpar(col = "darkgrey", lwd = 3, fill = NA))
+    }
+    # Optic Tectum: sox11b, mafba, neurod1, nkx2.7
+    if (j == tectum_col && i %in% match(c("sox11b", "mafba", "neurod1", "nkx2.7"), 
+                                         rownames(heatmap_matrix))) {
+      grid.rect(x, y, width, height, 
+                gp = gpar(col = "darkgrey", lwd = 3, fill = NA))
+    }
+  }
+}
+
+# Create heatmap
+hm <- Heatmap(
+  heatmap_matrix,
+  name = "% cells",
+  col = col_fun4,
+  cluster_rows = FALSE,  # Keep order as specified
+  cluster_columns = TRUE,
+  show_column_names = TRUE,
+  show_row_names = TRUE,
+  column_names_rot = 45,
+  column_names_side = "bottom",
+  column_names_gp = gpar(fontsize = 10),
+  row_names_side = "right",
+  row_names_gp = gpar(fontsize = 11, fontface = "italic"),  # Everything italic
+  border = TRUE,
+  cell_fun = cell_fun,
+  heatmap_legend_param = list(
+    title = "% cells in cluster",
+    direction = "horizontal",
+    legend_width = unit(6, "cm")
+  )
+)
+
+# Save
+png(filename = "outputs_fig3/FigureS3_celltype_percentages.png", 
+    height = 5, width = 14, units = "in", res = 300)
+draw(hm, heatmap_legend_side = "bottom", padding = unit(c(10, 30, 10, 10), "mm"))
+dev.off()
+```
+
 
