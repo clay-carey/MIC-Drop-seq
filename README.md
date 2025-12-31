@@ -1,6 +1,6 @@
 # MIC-Drop-seq Analysis Code
 
-Code to reproduce figures from Carey et al., "MIC-Drop-seq: Scalable single-cell phenotyping of mutant vertebrate embryos"
+Code to reproduce figures from Carey, Parvez et al., "MIC-Drop-seq: Scalable single-cell phenotyping of mutant vertebrate embryos"
 
 [![bioRxiv](https://img.shields.io/badge/bioRxiv-10.1101%2F2025.05.27.656468-b31b1b.svg)](https://doi.org/10.1101/2025.05.27.656468)
 
@@ -70,7 +70,8 @@ devtools::install_github(c("samuel-marsh/scCustomize",
                            "jokergoo/bubbleHeatmap"))
 ```
 
-Note: to exactly recapitulate q values for differential abundance analysis, this source of PLNmodels must be used 
+Note: To exactly recapitulate q values for differential abundance analysis, PLNmodels must be installed from cole-trapnell-lab, not from other sources.
+
 ---
 
 ## Getting the data
@@ -149,8 +150,9 @@ Outputs are saved to `outputs_fig*/` directories. Total runtime ~1-1.5 hours on 
 
 ## Contact
 
-**Primary Code/Analysis** 
+**Primary Authors* 
 - Clay Carey: clay.carey@utah.edu
+- Saba Parvez: saba.parvez@northwestern.edu
 
 **Corresponding authors:**
 - James Gagnon: james.gagnon@utah.edu  
