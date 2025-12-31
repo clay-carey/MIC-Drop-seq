@@ -13,8 +13,7 @@ Advances in genome engineering and single-cell RNA sequencing (scRNAseq) have re
 ---
 ## Interactive Data Exploration
 
-https://019aad8c-f0c6-c979-f701-311a7d235fb7.share.connect.posit.cloud/
-We have provided a interactive analysis tool to allow users to fully explore the MIC-Drop-seq dataset
+We have developed an interactive analysis tool to allow users to fully explore the MIC-Drop-seq dataset.
 
 **[LINK](https://019aad8c-f0c6-c979-f701-311a7d235fb7.share.connect.posit.cloud/)**
 
