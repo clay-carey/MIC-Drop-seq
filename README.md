@@ -128,7 +128,7 @@ Outputs are saved to `outputs_fig*/` directories. Total runtime ~1-1.5 hours on 
 
 **Processed data**: Available via the link above
 
-**Raw sequencing**: Will be available on GEO upon publication alongside processed data
+**Raw sequencing data**: Is available to download on GEO with accession [GSE315445](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE315445) 
 
 ---
 
