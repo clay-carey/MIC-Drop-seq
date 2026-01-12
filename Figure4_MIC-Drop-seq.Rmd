@@ -330,7 +330,7 @@ lin_df <- meta %>%
 
 ## Create all combinations of cell types and perturbations
 ## This allows us to ask: for each perturbation, what is its expression in each cell type's lineage?
-lin_pert_df <- map_dfr(unique(combined.meta$class), function(pert) {
+lin_pert_df <- map_dfr(unique(micdrop$class), function(pert) {
   lin_df %>% mutate(perturbation = pert)
 })
 
@@ -375,10 +375,14 @@ lin_pert_df_long_top
 
 Load and process DEG results
 ```{r}
-DEG_results <- readRDS(file = "/Users/claytoncarey/Documents/Seurat/micdrop_seq/micdrop/Figure_code/MIC-Drop-seq/DEG_results_5_9_24.rds")
+DEG_results <- readRDS(file = "input_data/DEG_results_5_9_24.rds")
 meta <- micdrop@meta.data
 
+count_ncell <- meta %>% count(curated_cell_type2) %>% rename( "cell_type"  = "curated_cell_type2", "cluster_ncell" = "n") 
 
+cell_class_df <- meta %>% select(cell_class, curated_cell_type2) %>% distinct() %>%  rename( "cell_type"  = "curated_cell_type2") 
+
+DEG_results <- DEG_results %>% left_join(count_ncell, by = "cell_type") %>% left_join(cell_class_df, by = "cell_type")
 
 ## Count significant DEGs per cell type / perturbation combination
 ## Filters: FDR < 0.05, |logFC| > 0.5, >10 perturbed cells, >800 cells in cluster
