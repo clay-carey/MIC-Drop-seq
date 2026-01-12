@@ -55,19 +55,20 @@ Install R packages:
 install.packages(c("tidyverse", "ggplot2", "viridis", "cowplot", "patchwork",
                    "ggpubr", "ggtext", "ggrepel", "ggridges", "rstatix", 
                    "DescTools", "igraph", "gtExtras", "circlize", 
-                   "devtools", "BiocManager"))
+                   "devtools", "BiocManager", "Seurat", "bubbleHeatmap"))
 
 # Bioconductor packages
-BiocManager::install(c("Seurat", "edgeR", "presto", "SingleCellExperiment", 
-                       "scDblFinder", "ComplexHeatmap", "EnhancedVolcano", 
-                       "monocle3", "SeuratWrappers"))
+BiocManager::install(c("edgeR", "SingleCellExperiment", 
+                       "scDblFinder", "ComplexHeatmap", "EnhancedVolcano"))
 
 # GitHub packages
 devtools::install_github(c("samuel-marsh/scCustomize", 
                            "dtm2451/dittoSeq",
+                           "cole-trapnell-lab/PLNmodels",
                            "cole-trapnell-lab/hooke",
-                           "cole-trapnell-lab/PLNmodels", 
-                           "jokergoo/bubbleHeatmap"))
+                           "cole-trapnell-lab/monocle3",
+                           "satijalab/seurat-wrappers",
+                           "immunogenomics/presto"))
 ```
 
 Note: To exactly recapitulate q values for differential abundance analysis, PLNmodels must be installed from cole-trapnell-lab, not from other sources.
@@ -78,7 +79,7 @@ Note: To exactly recapitulate q values for differential abundance analysis, PLNm
 
 Download processed input data (~30 GB):
 
-**[Download input_data.zip](https://drive.google.com/file/d/1UcX7488msB4lrT9UUWTUvYUg4rvRFYHe/view?usp=drive_link)**
+**[Download input_data.zip](https://drive.google.com/file/d/1_s4SJdaYLeF-0qQSutJPpQfDakyEfRVV/view?usp=sharing)**
 
 Extract to `input_data/` in your chosen directory.
 
